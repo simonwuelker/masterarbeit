@@ -1,9 +1,12 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
+use clap::Parser;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, BufWriter, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
-fn read_var_id<R>(mut reader: R) -> Result<Id>
+mod edgelist;
+
+fn read_var_id<R>(mut reader: R) -> io::Result<Id>
 where
     R: Read,
 {
@@ -17,7 +20,7 @@ where
 
     Ok(id)
 }
-fn read_var_int<R>(mut reader: R) -> Result<usize>
+fn read_var_int<R>(mut reader: R) -> io::Result<usize>
 where
     R: Read,
 {
@@ -45,7 +48,7 @@ type Id = isize;
 struct ClauseAddition {
     id: Id,
     literals: Vec<usize>,
-    hints: Vec<usize>,
+    hints: Vec<Id>,
 }
 
 #[derive(Clone, Debug)]
@@ -54,13 +57,19 @@ struct ClauseDeletion {
 }
 
 #[derive(Clone, Debug)]
+struct ClauseImport {
+    imported_clauses: Vec<Id>,
+}
+
+#[derive(Clone, Debug)]
 enum Step {
     Add(ClauseAddition),
     Delete(ClauseDeletion),
+    Import(ClauseImport),
 }
 
 impl ClauseAddition {
-    fn read<R>(mut reader: R) -> Result<Self>
+    fn read<R>(mut reader: R) -> io::Result<Self>
     where
         R: Read,
     {
@@ -76,10 +85,10 @@ impl ClauseAddition {
 
         // Read hints
         let mut hints = Vec::new();
-        let mut next = read_var_int(&mut reader)?;
+        let mut next = read_var_id(&mut reader)?;
         while next != 0 {
             hints.push(next);
-            next = read_var_int(&mut reader)?;
+            next = read_var_id(&mut reader)?;
         }
 
         Ok(ClauseAddition {
@@ -91,7 +100,7 @@ impl ClauseAddition {
 }
 
 impl ClauseDeletion {
-    fn read<R>(mut reader: R) -> Result<Self>
+    fn read<R>(mut reader: R) -> io::Result<Self>
     where
         R: Read,
     {
@@ -106,8 +115,24 @@ impl ClauseDeletion {
     }
 }
 
+impl ClauseImport {
+    fn read<R>(mut reader: R) -> io::Result<Self>
+    where
+        R: Read,
+    {
+        let mut imported_clauses = Vec::new();
+        let mut next = read_var_id(&mut reader)?;
+        while next != 0 {
+            imported_clauses.push(next);
+            next = read_var_id(&mut reader)?;
+        }
+
+        Ok(ClauseImport { imported_clauses })
+    }
+}
+
 impl Step {
-    fn read<R>(mut reader: R) -> Result<Self>
+    fn read<R>(mut reader: R) -> io::Result<Self>
     where
         R: Read,
     {
@@ -117,6 +142,7 @@ impl Step {
         match buffer[0] {
             b'a' => ClauseAddition::read(&mut reader).map(Self::Add),
             b'd' => ClauseDeletion::read(&mut reader).map(Self::Delete),
+            b'i' => ClauseImport::read(&mut reader).map(Self::Import),
             other => {
                 panic!(
                     "Unknown step type: {:0>2x} ({:?})",
@@ -128,36 +154,59 @@ impl Step {
     }
 }
 
-fn parse_palrup_file<P>(path: P) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    let path = path.as_ref();
-    println!("Parse PalRUP file: {}", path.display());
-    let file = File::open(&path)
-        .with_context(|| format!("Failed to read proof from {}", path.display()))?;
-    let mut reader = BufReader::new(file);
+struct PalrupIterator<R: Read> {
+    reader: R,
+}
 
-    let mut i = 0;
-    while let Ok(step) = Step::read(&mut reader) {
-        match step {
-            Step::Add(add) => println!("Add clause {:?}", add.id),
-            Step::Delete(delete) => println!("Delete clauses {:?}", delete.deleted_clauses),
-        }
-        i += 1;
-        if i > 10 {
-            break;
+impl PalrupIterator<BufReader<File>> {
+    pub(crate) fn for_file<P: AsRef<Path>>(file: P) -> Result<Self> {
+        let file = File::open(&file)
+            .with_context(|| format!("Failed to read proof from {}", file.as_ref().display()))?;
+        let reader = BufReader::new(file);
+
+        Ok(Self { reader })
+    }
+}
+
+impl<R: Read> Iterator for PalrupIterator<R> {
+    type Item = Result<Step>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match Step::read(&mut self.reader) {
+            Ok(step) => Some(Ok(step)),
+            Err(error) if error.kind() == ErrorKind::UnexpectedEof => None,
+            Err(other) => Some(Err(other.into())),
         }
     }
+}
 
-    Ok(())
+/// Transpiler from PalRup proof files to edge lists
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Path to proof directory
+    #[arg(short, long)]
+    proof_directory: PathBuf,
+
+    /// Path to write the output file to
+    #[arg(short, long, default_value = "out.edgelist")]
+    output_file: PathBuf,
 }
 
 fn main() -> Result<()> {
-    let dir = PathBuf::from("/home/alaska/masterarbeit/mallob/proofs/proof#442/");
+    let args = Args::parse();
+    let out_file = fs::File::create(&args.output_file).with_context(|| {
+        format!(
+            "Failed to create output graph file {}",
+            args.output_file.display()
+        )
+    })?;
+
+    let mut writer = edgelist::Writer::new(BufWriter::new(out_file));
 
     // Walk dir for solver processes
-    for entry in fs::read_dir(dir)? {
+    let mut i = 0;
+    for entry in fs::read_dir(&args.proof_directory)? {
         let solver_process_directory = entry?;
         if solver_process_directory.file_type()?.is_dir() {
             // Walk dir for solver threads
@@ -174,7 +223,22 @@ fn main() -> Result<()> {
                                 solver_thread_directory.path().display()
                             );
                         } else {
-                            parse_palrup_file(entry.path())?;
+                            println!("File {i}: {:?}", entry.path().display());
+                            i += 1;
+                            let iterator = PalrupIterator::for_file(entry.path())?;
+                            let mut min_id = None;
+                            for entry in iterator {
+                                let step = entry?;
+                                if let Step::Add(add) = step {
+                                    let min_id = min_id.get_or_insert(add.id);
+                                    for derived_from in add.hints {
+                                        if derived_from < *min_id {
+                                            continue;
+                                        }
+                                        writer.add_connection(derived_from, add.id)?;
+                                    }
+                                }
+                            }
                         }
                     }
                 } else {
