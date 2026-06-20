@@ -1,13 +1,16 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 
 mod edgelist;
 mod palrup;
+mod walker;
 
-use crate::palrup::{PalrupIterator, Step};
+use crate::palrup::{Id, PalrupIterator, Step};
+use crate::walker::Walker;
 
 /// Transpiler from PalRup proof files to edge lists
 #[derive(Parser, Debug)]
@@ -77,23 +80,61 @@ fn main() -> Result<()> {
     // Walk dir for solver processes
     let proof_files = find_proof_files(&args.proof_directory)?;
 
-    for (index, proof_file) in proof_files.iter().enumerate() {
+    let mut max = Id::MAX;
+    for (index, proof_file) in proof_files.iter().enumerate().skip(30).take(1) {
         println!("File {index}: {:?}", proof_file.display());
+        writer.add_comment(&format!("File {index}: {:?}", proof_file.display()))?;
 
         let iterator = PalrupIterator::for_file(proof_file)?;
         let mut min_id = None;
+        let mut unused_imports = HashSet::new();
+
+        let mut walker = Walker::default();
+
+        let mut n_imports = 0;
+        let mut import_remapping = HashMap::new();
         for entry in iterator {
-            let step = entry?;
-            if let Step::Add(add) = step {
-                let min_id = min_id.get_or_insert(add.id);
-                for derived_from in add.hints {
-                    if derived_from < *min_id {
-                        continue;
+            match entry? {
+                Step::Add(add) => {
+                    walker.add_clause(&add);
+                    let min_id = min_id.get_or_insert(add.id);
+                    for derived_from in add.hints {
+                        // if derived_from < *min_id {
+                        //     continue;
+                        // }
+                        let remapped_node =
+                            import_remapping.get(&derived_from).unwrap_or(&derived_from);
+                        unused_imports.remove(remapped_node);
+                        writer.add_connection(derived_from, add.id)?;
                     }
-                    writer.add_connection(derived_from, add.id)?;
+                }
+                Step::Import(import) => {
+                    n_imports += 1;
+                    let import_node = max;
+                    max -= 1;
+                    import_remapping.insert(import.imported_clause, import_node);
+
+                    writer.add_comment(&format!(
+                        "Import {} as {import_node}",
+                        import.imported_clause
+                    ))?;
+                    writer.add_connection(import.imported_clause, import_node)?;
+                    unused_imports.insert(import_node);
+
+                    walker.import_clause(import);
+                }
+                Step::Delete(deletion) => {
+                    for clause in deletion.deleted_clauses {
+                        walker.forget_clause(clause);
+                    }
                 }
             }
         }
+        println!("{}/{n_imports} unused imports", unused_imports.len());
+        if unused_imports.contains(&3688) {
+            println!("3688 was unused i think!");
+        }
+        println!("Walker stats: {:?}", walker.finalize());
     }
 
     Ok(())

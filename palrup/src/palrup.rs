@@ -56,7 +56,7 @@ pub(crate) struct ClauseDeletion {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClauseImport {
-    pub(crate) imported_clauses: Vec<Id>,
+    pub(crate) imported_clause: Id,
 }
 
 #[derive(Clone, Debug)]
@@ -118,14 +118,15 @@ impl ClauseImport {
     where
         R: Read,
     {
-        let mut imported_clauses = Vec::new();
-        let mut next = read_var_id(&mut reader)?;
+        let imported_clause = read_var_id(&mut reader)?;
+
+        // Read clause literals
+        let mut next = read_var_int(&mut reader)?;
         while next != 0 {
-            imported_clauses.push(next);
-            next = read_var_id(&mut reader)?;
+            next = read_var_int(&mut reader)?;
         }
 
-        Ok(ClauseImport { imported_clauses })
+        Ok(ClauseImport { imported_clause })
     }
 }
 

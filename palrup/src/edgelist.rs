@@ -16,4 +16,9 @@ impl<W: Write> Writer<W> {
         writeln!(self.writer, "{from}\t{to}")?;
         Ok(())
     }
+
+    pub(crate) fn add_comment(&mut self, text: &str) -> Result<()> {
+        writeln!(self.writer, "# {text}")?;
+        Ok(())
+    }
 }
