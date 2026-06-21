@@ -131,9 +131,6 @@ fn main() -> Result<()> {
             }
         }
         println!("{}/{n_imports} unused imports", unused_imports.len());
-        if unused_imports.contains(&3688) {
-            println!("3688 was unused i think!");
-        }
         println!("Walker stats: {:?}", walker.finalize());
     }
 

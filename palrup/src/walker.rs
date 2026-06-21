@@ -86,10 +86,7 @@ impl Walker {
         }
 
         let mut stats = [0; TRACK_DERIVATIVES_UP_TO as usize];
-        for (key, depth) in self.imports {
-            if depth == 1 && key == 3688 {
-                println!("We think {key:?} is used once at least.");
-            }
+        for (_, depth) in self.imports {
             stats[depth as usize] = stats[depth as usize] + 1;
         }
 
