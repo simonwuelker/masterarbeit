@@ -5,7 +5,7 @@ use std::collections::{
 
 use crate::palrup::{ClauseAddition, ClauseImport, Id};
 
-const TRACK_DERIVATIVES_UP_TO: u8 = 5;
+pub(crate) const TRACK_DERIVATIVES_UP_TO: u8 = 5;
 
 #[derive(Default)]
 pub(crate) struct Walker {
@@ -17,7 +17,7 @@ pub(crate) struct Walker {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct UsageStatistics {
-    import_depth: [usize; TRACK_DERIVATIVES_UP_TO as usize],
+    pub import_depth: [usize; TRACK_DERIVATIVES_UP_TO as usize],
 }
 
 impl Walker {

@@ -1,16 +1,18 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 mod edgelist;
 mod palrup;
 mod walker;
 
 use crate::palrup::{Id, PalrupIterator, Step};
-use crate::walker::Walker;
+use crate::walker::{TRACK_DERIVATIVES_UP_TO, Walker};
 
 /// Transpiler from PalRup proof files to edge lists
 #[derive(Parser, Debug)]
@@ -81,7 +83,9 @@ fn main() -> Result<()> {
     let proof_files = find_proof_files(&args.proof_directory)?;
 
     let mut max = Id::MAX;
-    for (index, proof_file) in proof_files.iter().enumerate().skip(30).take(1) {
+    let mut per_file_info = HashMap::new();
+    let start = Instant::now();
+    for (index, proof_file) in proof_files.iter().enumerate() {
         println!("File {index}: {:?}", proof_file.display());
         writer.add_comment(&format!("File {index}: {:?}", proof_file.display()))?;
 
@@ -130,23 +134,31 @@ fn main() -> Result<()> {
                 }
             }
         }
-        println!("{}/{n_imports} unused imports", unused_imports.len());
-        println!("Walker stats: {:?}", walker.finalize());
+
+        let usage_stats = walker.finalize();
+
+        per_file_info.insert(
+            proof_file,
+            PerFileInfo {
+                import_depths: usage_stats
+                    .import_depth
+                    .map(|depth| depth as f32 / n_imports as f32),
+            },
+        );
     }
+    println!("Walking proof files took {:?}", start.elapsed());
+
+    let result_path = "out.json";
+    if fs::exists(&result_path)? {
+        fs::remove_file(&result_path)?;
+    }
+    let outfile = fs::File::create(&result_path)?;
+    serde_json::to_writer(outfile, &per_file_info)?;
 
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // #[test]
-    // fn parse_clause() {
-    //     let source = &[0x61, 0xb4, 0x0e, 0x0b, 0x75, 0xf4, 0x02, 0xf8, 0x02, 0x80, 0x03, 0x82, 0x03, 0x86, 0x03, 0x90]
-    //     61b4 0e0b 75f4 02f8 0280 0382 0386 0390  a...u...........
-    //     00000010: 0300 f209 c208 8803 f404 b40c ee08 cc0a  ................
-    //     00000020: fa0a be08 ce0b f008 8c07 9009 b206 f606  ................
-    //     00000030: f002 ec03 00
-    // }
+#[derive(Serialize)]
+struct PerFileInfo {
+    import_depths: [f32; TRACK_DERIVATIVES_UP_TO as usize],
 }
