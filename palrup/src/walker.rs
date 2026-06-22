@@ -3,25 +3,36 @@ use std::collections::{
     hash_map::{Entry, OccupiedEntry},
 };
 
+use serde::Serialize;
+
 use crate::palrup::{ClauseAddition, ClauseImport, Id};
 
 pub(crate) const TRACK_DERIVATIVES_UP_TO: u8 = 5;
 
 #[derive(Default)]
 pub(crate) struct Walker {
-    /// For each import, stores the highest known derivation depth (so far).
-    imports: HashMap<Id, u8>,
+    /// For each import, stores the highest known derivation depth (so far) and the import generation that it
+    /// was imported in.
+    imports: HashMap<Id, (u8, u32)>,
     /// For each non-import clause, stores the depth that it was derived from from each import.
     derivatives: HashMap<Id, HashMap<Id, u8>>,
+    last_was_import: bool,
+    current_import_generation: u32,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct UsageStatistics {
     pub import_depth: [usize; TRACK_DERIVATIVES_UP_TO as usize],
+    pub unused_imports_per_generation: Vec<usize>,
 }
 
 impl Walker {
     pub(crate) fn add_clause(&mut self, clause: &ClauseAddition) {
+        if self.last_was_import {
+            self.last_was_import = false;
+            self.current_import_generation += 1;
+        }
+
         let mut derived_by_imports = HashMap::new();
         for depends_on in &clause.hints {
             if self.imports.contains_key(depends_on) {
@@ -52,17 +63,24 @@ impl Walker {
     }
 
     pub(crate) fn import_clause(&mut self, import: ClauseImport) {
-        self.imports.insert(import.imported_clause, 0);
+        self.last_was_import = true;
+        self.imports
+            .insert(import.imported_clause, (0, self.current_import_generation));
     }
 
     pub(crate) fn forget_clause(&mut self, id: Id) {
+        if self.last_was_import {
+            self.last_was_import = false;
+            self.current_import_generation += 1;
+        }
+
         // We never forget imports
         let Entry::Occupied(occupied_entry) = self.derivatives.entry(id) else {
             return;
         };
 
         for (ancestor_import, depth) in occupied_entry.get() {
-            let Some(previous_max_depth) = self.imports.get_mut(ancestor_import) else {
+            let Some((previous_max_depth, _)) = self.imports.get_mut(ancestor_import) else {
                 unreachable!();
             };
             if *depth > *previous_max_depth {
@@ -76,7 +94,7 @@ impl Walker {
     pub(crate) fn finalize(mut self) -> UsageStatistics {
         for (_, info) in self.derivatives {
             for (ancestor_import, depth) in info {
-                let Some(previous_max_depth) = self.imports.get_mut(&ancestor_import) else {
+                let Some((previous_max_depth, _)) = self.imports.get_mut(&ancestor_import) else {
                     unreachable!();
                 };
                 if depth > *previous_max_depth {
@@ -86,12 +104,18 @@ impl Walker {
         }
 
         let mut stats = [0; TRACK_DERIVATIVES_UP_TO as usize];
-        for (_, depth) in self.imports {
+        let mut unused_imports_per_generation =
+            vec![0; self.current_import_generation as usize + 1];
+        for (_, (depth, generation)) in self.imports {
             stats[depth as usize] = stats[depth as usize] + 1;
+            if depth == 0 {
+                unused_imports_per_generation[generation as usize] += 1;
+            }
         }
 
         UsageStatistics {
             import_depth: stats,
+            unused_imports_per_generation,
         }
     }
 }
@@ -102,11 +126,12 @@ mod tests {
 
     #[test]
     fn test_empty_sequence() {
-        let mut stats = Walker::default().finalize();
+        let stats = Walker::default().finalize();
         assert_eq!(
             stats,
             UsageStatistics {
-                import_depth: [0; TRACK_DERIVATIVES_UP_TO as usize]
+                import_depth: [0; TRACK_DERIVATIVES_UP_TO as usize],
+                unused_imports_per_generation: vec![0],
             }
         )
     }
@@ -123,7 +148,8 @@ mod tests {
         assert_eq!(
             walker.finalize(),
             UsageStatistics {
-                import_depth: [2, 0, 0, 0, 0]
+                import_depth: [2, 0, 0, 0, 0],
+                unused_imports_per_generation: vec![2]
             }
         )
     }
@@ -147,7 +173,8 @@ mod tests {
         assert_eq!(
             walker.finalize(),
             UsageStatistics {
-                import_depth: [0, 1, 1, 0, 0]
+                import_depth: [0, 1, 1, 0, 0],
+                unused_imports_per_generation: vec![0, 0, 0]
             }
         )
     }
@@ -178,13 +205,14 @@ mod tests {
         assert_eq!(
             walker.finalize(),
             UsageStatistics {
-                import_depth: [0, 0, 0, 1, 0]
+                import_depth: [0, 0, 0, 1, 0],
+                unused_imports_per_generation: vec![0, 0]
             }
         )
     }
 
     #[test]
-    fn test_imports_with_many() {
+    fn test_imports_use_longer_chain() {
         let mut walker = Walker::default();
         walker.import_clause(ClauseImport { imported_clause: 0 });
         walker.add_clause(&ClauseAddition {
@@ -209,7 +237,8 @@ mod tests {
         assert_eq!(
             walker.finalize(),
             UsageStatistics {
-                import_depth: [0, 0, 0, 1, 0]
+                import_depth: [0, 0, 0, 1, 0],
+                unused_imports_per_generation: vec![0, 0]
             }
         )
     }

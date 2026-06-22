@@ -97,6 +97,7 @@ fn main() -> Result<()> {
 
         let mut n_imports = 0;
         let mut import_remapping = HashMap::new();
+
         for entry in iterator {
             match entry? {
                 Step::Add(add) => {
@@ -137,12 +138,18 @@ fn main() -> Result<()> {
 
         let usage_stats = walker.finalize();
 
+        let total_unused_imports: usize = usage_stats.unused_imports_per_generation.iter().sum();
         per_file_info.insert(
             proof_file,
             PerFileInfo {
                 import_depths: usage_stats
                     .import_depth
                     .map(|depth| depth as f32 / n_imports as f32),
+                unused_imports_per_generation: usage_stats
+                    .unused_imports_per_generation
+                    .into_iter()
+                    .map(|unused_imports| unused_imports as f32 / total_unused_imports as f32)
+                    .collect(),
             },
         );
     }
@@ -161,4 +168,5 @@ fn main() -> Result<()> {
 #[derive(Serialize)]
 struct PerFileInfo {
     import_depths: [f32; TRACK_DERIVATIVES_UP_TO as usize],
+    unused_imports_per_generation: Vec<f32>,
 }

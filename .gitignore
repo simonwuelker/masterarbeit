@@ -1,3 +1,8 @@
 out.palrup
 target/
 out.edgelist
+graphvise.txt
+graphvise_coloring.txt
+out.json
+import-generations.svg
+unused-imports-per-communication-step.svg
