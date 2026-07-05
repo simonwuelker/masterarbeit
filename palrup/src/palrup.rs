@@ -95,6 +95,10 @@ impl ClauseAddition {
             hints,
         })
     }
+
+    pub(crate) fn is_unsat_clause(&self) -> bool {
+        self.literals.is_empty()
+    }
 }
 
 impl ClauseDeletion {

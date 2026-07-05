@@ -1,8 +1,6 @@
-use std::collections::{
-    HashMap,
-    hash_map::{Entry, OccupiedEntry},
-};
+use std::collections::hash_map::Entry;
 
+use rustc_hash::FxHashMap;
 use serde::Serialize;
 
 use crate::palrup::{ClauseAddition, ClauseImport, Id};
@@ -13,9 +11,9 @@ pub(crate) const TRACK_DERIVATIVES_UP_TO: u8 = 5;
 pub(crate) struct Walker {
     /// For each import, stores the highest known derivation depth (so far) and the import generation that it
     /// was imported in.
-    imports: HashMap<Id, (u8, u32)>,
+    imports: FxHashMap<Id, (u8, u32)>,
     /// For each non-import clause, stores the depth that it was derived from from each import.
-    derivatives: HashMap<Id, HashMap<Id, u8>>,
+    derivatives: FxHashMap<Id, FxHashMap<Id, u8>>,
     last_was_import: bool,
     current_import_generation: u32,
 }
@@ -33,20 +31,29 @@ impl Walker {
             self.current_import_generation += 1;
         }
 
-        let mut derived_by_imports = HashMap::new();
+        let mut derived_by_imports = FxHashMap::default();
         for depends_on in &clause.hints {
             if self.imports.contains_key(depends_on) {
+                // This clause is an import! Lets mark it as having a derivative.
                 derived_by_imports.entry(*depends_on).or_insert(1);
                 continue;
             }
-            if let Some(derived_by) = self.derivatives.get(depends_on) {
-                for (derived_from, depth) in derived_by {
+
+            if let Some(ancestor_imports) = self.derivatives.get(depends_on) {
+                // One of the clauses that this clause was derived from was in turn derived from an import.
+                for (ancestor_import, depth) in ancestor_imports {
                     if *depth == TRACK_DERIVATIVES_UP_TO - 1 {
                         continue;
                     }
-                    let new_depth = *depth + 1;
+                    let new_depth = if clause.is_unsat_clause() {
+                        // This clause solved the instance - even if its not a particular
+                        // deep import depth, treat it as if it was very useful.
+                        TRACK_DERIVATIVES_UP_TO - 1
+                    } else {
+                        depth + 1
+                    };
                     derived_by_imports
-                        .entry(*derived_from)
+                        .entry(*ancestor_import)
                         .and_modify(|current| *current = (*current).max(new_depth))
                         .or_insert(new_depth);
                 }
