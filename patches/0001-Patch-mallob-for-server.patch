@@ -1,0 +1,26 @@
+0001-Patch-mallob-for-server.patch
+bash-5.1$ cat 0001-Patch-mallob-for-server.patch
+From 1313a884aaf99af051336e5390c208189b701d08 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Simon=20WW=C3=BClker?= <simonwuelker@arcor.de>
+Date: Sun, 5 Jul 2026 12:47:58 +0200
+Subject: [PATCH] Patch mallob for server
+
+---
+ lib/base-build-functions.sh | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/base-build-functions.sh b/lib/base-build-functions.sh
+index 90360a5b..c814ed90 100644
+--- a/lib/base-build-functions.sh
++++ b/lib/base-build-functions.sh
+@@ -18,7 +18,7 @@ function fetch_and_extract() {
+     fi
+
+     echo "[$dirname] Fetching sources ..."
+-    curl -L -o "${dirname}.zip" "$url"
++    curl -k -L -o "${dirname}.zip" "$url"
+
+     echo "[$dirname] Extracting sources ..."
+     unzip ${dirname}*.zip
+--
+2.43.5
