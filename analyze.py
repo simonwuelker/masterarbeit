@@ -3,12 +3,16 @@
 from os import write
 import networkit as nk
 import matplotlib.pyplot as plt
+import sys
 
-G = nk.graphio.EdgeListReader("\t", 0, "#", continuous=False).read("out.edgelist")
+if len(sys.argv) != 2:
+    print(f"Usage: {sys.argv[0]} <edgelist>")
+    exit(1)
+
+filename = sys.argv[1]
+G = nk.graphio.EdgeListReader("\t", 0, "#", continuous=False).read(filename)
 # G = nk.graphio.EdgeListReader("\t", 0, "#",  directed=True, continuous=False).read("out.edgelist")
 print(nk.overview(G))
-# G.indexEdges()
-# print(G.isDirected())
 
 def edgeFunc(u, v, weight, edgeId):
     print("Edge from {} to {} has weight {} and id {}".format(u, v, weight, edgeId))
@@ -102,13 +106,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 engine = create_engine("sqlite:///database.db")
 
-from typing import List
-from typing import Optional
 from sqlalchemy import String
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
-from sqlalchemy.orm import relationship
+from sqlalchemy_utils import database_exists, create_database
+if not database_exists(engine.url):
+    create_database(engine.url)
 
 class Base(DeclarativeBase):
     pass
@@ -116,19 +120,21 @@ class Base(DeclarativeBase):
 class GraphAnalysis(Base):
     __tablename__ = "graph_analysis"
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(30))
-    fullname: Mapped[Optional[str]]
-    addresses: Mapped[List["Address"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
+    filename: Mapped[str] = mapped_column(String(100))
+    average_out_degree: Mapped[float]
+    global_clustering_coefficient: Mapped[float]
+
     def __repr__(self) -> str:
-        return f"User(id={self.id!r}, name={self.name!r}, fullname={self.fullname!r})"
+        return f"PalRup(id={self.id!r}, name={self.filename!r}"
+
+GraphAnalysis.__table__.drop(engine)
+Base.metadata.create_all(engine)
 
 with Session(engine) as session:
-    spongebob = GraphAnalysis(
-        name="spongebob",
-        fullname="Spongebob Squarepants",
-        addresses=[Address(email_address="spongebob@sqlalchemy.org")],
+    graph_analysis = GraphAnalysis(
+        filename=filename,
+        average_out_degree=G.numberOfEdges() / G.numberOfNodes(),
+        global_clustering_coefficient=nk.globals.clustering(G)
     )
-    session.add_all([spongebob])
+    session.add_all([graph_analysis])
     session.commit()
