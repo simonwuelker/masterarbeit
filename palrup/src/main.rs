@@ -16,14 +16,14 @@ use crate::walker::{TRACK_DERIVATIVES_UP_TO, Walker};
 
 /// Transpiler from PalRup proof files to edge lists
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[clap(version, about, long_about = None)]
 struct Args {
     /// Path to proof directory
-    #[arg(short, long)]
+    #[clap(short, long)]
     proof_directory: PathBuf,
 
     /// Path to write the output file to
-    #[arg(short, long, default_value = "out.edgelist")]
+    #[clap(short, long, default_value = "out.edgelist")]
     output_file: PathBuf,
 }
 
