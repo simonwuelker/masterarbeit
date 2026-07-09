@@ -1,9 +1,6 @@
 #!/usr/bin/python3
 
-from os import write
-import networkit as nk
 import matplotlib.pyplot as plt
-import sys
 import argparse
 
 parser = argparse.ArgumentParser(prog="PalRup analyzer",
@@ -16,6 +13,7 @@ args = parser.parse_args()
 
 
 if args.parse_edgelist is not None:
+    import networkit as nk
     filename = parser.parse_edgelist
     G = nk.graphio.EdgeListReader("\t", 0, "#", continuous=False).read(filename)
     # G = nk.graphio.EdgeListReader("\t", 0, "#",  directed=True, continuous=False).read("out.edgelist")
