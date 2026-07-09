@@ -27,11 +27,6 @@ communities = nk.community.detectCommunities(G)
 print("Number of communities: ", communities.numberOfSubsets())
 
 sizes = sorted([len(communities.getMembers(index)) for index in range(communities.numberOfSubsets())])
-plt.bar(range(len(sizes)), sizes)
-# plt.show()
-# for community_index in range(communities.numberOfSubsets()):
-#     print(communities.getMembers(community_index))
-#
 print(sum([len(communities.getMembers(index)) > 2000 for index in range(communities.numberOfSubsets())]))
 
 # print("Writing GraphVise graph...")
@@ -68,7 +63,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def plot_import_generations(data):
-    import_depths = np.array([data[filename]["import_depths"] for filename in data])
+    import_depths = np.array([data["per_file"][filename]["import_depths"] for filename in data["per_file"]])
     standard_deviation = np.std(import_depths, axis=0)
     mean = np.mean(import_depths, axis=0)
 
@@ -83,20 +78,17 @@ def plot_import_generations(data):
     plt.savefig("import-generations.svg")
 
 def plot_unused_imports_per_generation(data):
-    max_communication_steps = max(len(data[filename]["unused_imports_per_generation"]) for filename in data)
-    unused_imports_per_generation = np.array([data[filename]["unused_imports_per_generation"] + [0] * (max_communication_steps - len(data[filename]["unused_imports_per_generation"])) for filename in data])
-    standard_deviation = np.std(unused_imports_per_generation, axis=0)
-    mean = np.mean(unused_imports_per_generation, axis=0)
+    unused_imports = data["unused_imports"]
 
     fig, ax = plt.subplots()
 
-    ax.bar(range(max_communication_steps), mean, yerr=standard_deviation, align='center')
+    ax.plot(unused_imports, [n / len(unused_imports) for n in range(len(unused_imports))])
     ax.set_ylabel('Percentage of total imports')
-    ax.set_title('Unused imports per communication step')
-    ax.set_xlabel("Communication steps")
-    plt.xticks(np.arange(0, max_communication_steps, 1.0))
-    ax.set_yscale("log")
+    ax.set_title('Unused imports over time')
+    ax.set_xlabel("Clause ID")
+    # ax.set_yscale("log")
 
+    plt.show()
     plt.savefig("unused-imports-per-communication-step.svg")
 
 plot_import_generations(data)

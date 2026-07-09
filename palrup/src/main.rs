@@ -68,6 +68,12 @@ fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBu
     Ok(proof_files)
 }
 
+#[derive(Debug, Default, Serialize)]
+struct ResultData {
+    per_file: HashMap<PathBuf, PerFileInfo>,
+    unused_imports: Vec<Id,>
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let out_file = fs::File::create(&args.output_file).with_context(|| {
@@ -83,7 +89,7 @@ fn main() -> Result<()> {
     let proof_files = find_proof_files(&args.proof_directory)?;
 
     let mut max = Id::MAX;
-    let mut per_file_info = HashMap::new();
+    let mut result_data = ResultData::default();
     let start = Instant::now();
     for (index, proof_file) in proof_files.iter().enumerate() {
         println!("File {index}: {:?}", proof_file.display());
@@ -138,35 +144,32 @@ fn main() -> Result<()> {
 
         let usage_stats = walker.finalize();
 
-        let total_unused_imports: usize = usage_stats.unused_imports_per_generation.iter().sum();
-        per_file_info.insert(
-            proof_file,
+        result_data.per_file.insert(
+            proof_file.to_owned(),
             PerFileInfo {
                 import_depths: usage_stats
                     .import_depth
                     .map(|depth| depth as f32 / n_imports as f32),
-                unused_imports_per_generation: usage_stats
-                    .unused_imports_per_generation
-                    .into_iter()
-                    .map(|unused_imports| unused_imports as f32 / total_unused_imports as f32)
-                    .collect(),
+
             },
         );
+        result_data.unused_imports.extend_from_slice(&usage_stats.unused_imports);
     }
     println!("Walking proof files took {:?}", start.elapsed());
+
+    result_data.unused_imports.sort_unstable();
 
     let result_path = "out.json";
     if fs::exists(&result_path)? {
         fs::remove_file(&result_path)?;
     }
     let outfile = fs::File::create(&result_path)?;
-    serde_json::to_writer(outfile, &per_file_info)?;
+    serde_json::to_writer(outfile, &result_data)?;
 
     Ok(())
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Default, Serialize)]
 struct PerFileInfo {
     import_depths: [f32; TRACK_DERIVATIVES_UP_TO as usize],
-    unused_imports_per_generation: Vec<f32>,
 }
