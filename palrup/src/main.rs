@@ -9,10 +9,11 @@ use std::time::Instant;
 
 mod edgelist;
 mod palrup;
+mod reverse_reader;
 mod walker;
 
 use crate::palrup::{Id, PalrupIterator, Step};
-use crate::walker::{TRACK_DERIVATIVES_UP_TO, Walker};
+use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 
 /// Transpiler from PalRup proof files to edge lists
 #[derive(Parser, Debug)]
@@ -71,7 +72,7 @@ fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBu
 #[derive(Debug, Default, Serialize)]
 struct ResultData {
     per_file: HashMap<PathBuf, PerFileInfo>,
-    unused_imports: Vec<Id,>
+    unused_imports: Vec<Id>,
 }
 
 fn main() -> Result<()> {
@@ -150,10 +151,11 @@ fn main() -> Result<()> {
                 import_depths: usage_stats
                     .import_depth
                     .map(|depth| depth as f32 / n_imports as f32),
-
             },
         );
-        result_data.unused_imports.extend_from_slice(&usage_stats.unused_imports);
+        result_data
+            .unused_imports
+            .extend_from_slice(&usage_stats.unused_imports);
     }
     println!("Walking proof files took {:?}", start.elapsed());
 

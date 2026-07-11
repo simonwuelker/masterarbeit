@@ -63,8 +63,7 @@ impl Walker {
     }
 
     pub(crate) fn import_clause(&mut self, import: ClauseImport) {
-        self.imports
-            .insert(import.imported_clause, 0);
+        self.imports.insert(import.imported_clause, 0);
     }
 
     pub(crate) fn forget_clause(&mut self, id: Id) {
@@ -98,8 +97,7 @@ impl Walker {
         }
 
         let mut stats = [0; TRACK_DERIVATIVES_UP_TO as usize];
-        let mut unused_imports =
-            vec![];
+        let mut unused_imports = vec![];
         for (id, depth) in self.imports {
             stats[depth as usize] = stats[depth as usize] + 1;
             if depth == 0 {
