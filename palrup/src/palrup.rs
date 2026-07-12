@@ -161,13 +161,19 @@ pub(crate) struct PalrupIterator<R: Read> {
     reader: R,
 }
 
+impl<R: Read> PalrupIterator<R> {
+    pub(crate) fn new(reader: R) -> Self {
+        Self { reader }
+    }
+}
+
 impl PalrupIterator<BufReader<File>> {
     pub(crate) fn for_file<P: AsRef<Path>>(file: P) -> Result<Self> {
         let file = File::open(&file)
             .with_context(|| format!("Failed to read proof from {}", file.as_ref().display()))?;
         let reader = BufReader::new(file);
 
-        Ok(Self { reader })
+        Ok(Self::new(reader))
     }
 }
 

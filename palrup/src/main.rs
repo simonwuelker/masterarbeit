@@ -13,6 +13,7 @@ mod reverse_reader;
 mod walker;
 
 use crate::palrup::{Id, PalrupIterator, Step};
+use crate::reverse_reader::ReversePalrupIterator;
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 
 /// Transpiler from PalRup proof files to edge lists
@@ -92,6 +93,7 @@ fn main() -> Result<()> {
     let mut max = Id::MAX;
     let mut result_data = ResultData::default();
     let start = Instant::now();
+    let mut index_of_unsat_clause = None;
     for (index, proof_file) in proof_files.iter().enumerate() {
         println!("File {index}: {:?}", proof_file.display());
         writer.add_comment(&format!("File {index}: {:?}", proof_file.display()))?;
@@ -105,11 +107,15 @@ fn main() -> Result<()> {
         let mut n_imports = 0;
         let mut import_remapping = HashMap::new();
 
+        let mut count = 0;
         for entry in iterator {
             match entry? {
                 Step::Add(add) => {
                     walker.add_clause(&add);
                     let min_id = min_id.get_or_insert(add.id);
+                    if add.is_unsat_clause() {
+                        index_of_unsat_clause = Some(index);
+                    }
                     for derived_from in add.hints {
                         // if derived_from < *min_id {
                         //     continue;
@@ -141,7 +147,9 @@ fn main() -> Result<()> {
                     }
                 }
             }
+            count += 1;
         }
+        println!("count {count:?}");
 
         let usage_stats = walker.finalize();
 
@@ -158,6 +166,29 @@ fn main() -> Result<()> {
             .extend_from_slice(&usage_stats.unused_imports);
     }
     println!("Walking proof files took {:?}", start.elapsed());
+
+    if let Some(index_of_unsat_clause) = index_of_unsat_clause {
+        let file_with_unsat_clause = &proof_files[index_of_unsat_clause];
+        println!(
+            "Walking {:?} backwards because it contains UNSAT clause...",
+            file_with_unsat_clause.display()
+        );
+        let mut reverse_iterator = ReversePalrupIterator::for_file(file_with_unsat_clause)
+            .context("Failed to create reverse palrup iterator")?;
+        let mut count = 0;
+        loop {
+            let Some(next) = reverse_iterator.next().unwrap() else {
+                break;
+            };
+            if let Step::Add(add) = &next {
+                if add.is_unsat_clause() {
+                    println!("Found unsat at {count:?}");
+                }
+            }
+            count += 1;
+        }
+        println!("FOund {:?} steps", count);
+    }
 
     result_data.unused_imports.sort_unstable();
 
