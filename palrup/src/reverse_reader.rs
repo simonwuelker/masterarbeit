@@ -124,16 +124,9 @@ mod tests {
     fn test_chunk_iterator() {
         let mut iterator: ChunkIterator<_, 5> =
             ChunkIterator::new(Cursor::new(b"opqrstuvwxyz")).unwrap();
-        let mut buffer = vec![0; 5];
-        assert_eq!(
-            iterator.next(&mut buffer).unwrap(),
-            Some(b"vwxyz".as_slice())
-        );
-        assert_eq!(
-            iterator.next(&mut buffer).unwrap(),
-            Some(b"qrstu".as_slice())
-        );
-        assert_eq!(iterator.next(&mut buffer).unwrap(), Some(b"op".as_slice()));
-        assert_eq!(iterator.next(&mut buffer).unwrap(), None);
+        assert_eq!(iterator.next(vec![0; 5]).unwrap(), Some(b"vwxyz".to_vec()));
+        assert_eq!(iterator.next(vec![0; 5]).unwrap(), Some(b"qrstu".to_vec()));
+        assert_eq!(iterator.next(vec![0; 5]).unwrap(), Some(b"op".to_vec()));
+        assert_eq!(iterator.next(vec![0; 5]).unwrap(), None);
     }
 }

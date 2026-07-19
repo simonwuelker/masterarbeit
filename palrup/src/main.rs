@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -8,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 mod edgelist;
+mod online_covariance;
 mod palrup;
 mod reverse_reader;
 mod walker;
@@ -175,19 +177,28 @@ fn main() -> Result<()> {
         );
         let mut reverse_iterator = ReversePalrupIterator::for_file(file_with_unsat_clause)
             .context("Failed to create reverse palrup iterator")?;
-        let mut count = 0;
+        let mut important_clauses = 0;
+        let mut total_clauses = 0;
+        let mut current_important_clauses = FxHashSet::default();
         loop {
             let Some(next) = reverse_iterator.next().unwrap() else {
                 break;
             };
             if let Step::Add(add) = &next {
-                if add.is_unsat_clause() {
-                    println!("Found unsat at {count:?}");
+                total_clauses += 1;
+
+                if add.is_unsat_clause() || current_important_clauses.remove(&add.id) {
+                    for ancestor in &add.hints {
+                        current_important_clauses.insert(*ancestor);
+                    }
+                    important_clauses += 1;
                 }
             }
-            count += 1;
         }
-        println!("FOund {:?} steps", count);
+        println!(
+            "{:?}/{:?} clauses important",
+            important_clauses, total_clauses
+        );
     }
 
     result_data.unused_imports.sort_unstable();

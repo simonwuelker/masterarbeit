@@ -123,7 +123,7 @@ mod tests {
             stats,
             UsageStatistics {
                 import_depth: [0; TRACK_DERIVATIVES_UP_TO as usize],
-                unused_imports: vec![0],
+                unused_imports: vec![],
             }
         )
     }
@@ -141,7 +141,7 @@ mod tests {
             walker.finalize(),
             UsageStatistics {
                 import_depth: [2, 0, 0, 0, 0],
-                unused_imports: vec![2]
+                unused_imports: vec![11, 32]
             }
         )
     }
@@ -166,7 +166,7 @@ mod tests {
             walker.finalize(),
             UsageStatistics {
                 import_depth: [0, 1, 1, 0, 0],
-                unused_imports: vec![0, 0, 0]
+                unused_imports: vec![]
             }
         )
     }
@@ -198,7 +198,7 @@ mod tests {
             walker.finalize(),
             UsageStatistics {
                 import_depth: [0, 0, 0, 1, 0],
-                unused_imports: vec![0, 0]
+                unused_imports: vec![]
             }
         )
     }
@@ -230,7 +230,7 @@ mod tests {
             walker.finalize(),
             UsageStatistics {
                 import_depth: [0, 0, 0, 1, 0],
-                unused_imports: vec![0, 0]
+                unused_imports: vec![]
             }
         )
     }
