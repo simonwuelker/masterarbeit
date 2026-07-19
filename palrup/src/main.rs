@@ -7,6 +7,7 @@ use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, iter};
+use tabled::{builder::Builder, settings::Style};
 
 mod edgelist;
 mod metrics;
@@ -97,13 +98,12 @@ fn main() -> Result<()> {
     let mut max = Id::MAX;
     let mut result_data = ResultData::default();
     let start = Instant::now();
-    let mut index_of_unsat_clause = None;
+    let mut id_of_unsat_clause = None;
     for (index, proof_file) in proof_files.iter().enumerate() {
-        println!("File {index}: {:?}", proof_file.display());
+        print!("File {index}: {:?} ", proof_file.display());
         writer.add_comment(&format!("File {index}: {:?}", proof_file.display()))?;
 
         let iterator = PalrupIterator::for_file(proof_file)?;
-        let mut min_id = None;
         let mut unused_imports = HashSet::new();
 
         let mut walker = Walker::default();
@@ -111,14 +111,13 @@ fn main() -> Result<()> {
         let mut n_imports = 0;
         let mut import_remapping = HashMap::new();
 
-        let mut count = 0;
+        let mut step_count = 0;
         for entry in iterator {
             match entry? {
                 Step::Add(add) => {
                     walker.add_clause(&add);
-                    let min_id = min_id.get_or_insert(add.id);
                     if add.is_unsat_clause() {
-                        index_of_unsat_clause = Some(index);
+                        id_of_unsat_clause = Some(add.id);
                     }
                     for derived_from in add.hints {
                         // if derived_from < *min_id {
@@ -151,11 +150,14 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            count += 1;
+            step_count += 1;
         }
-        println!("count {count:?}");
 
         let usage_stats = walker.finalize();
+        println!(
+            "{step_count} steps, {:?} clauses added, {:?} clauses deleted, {:?} clauses imported",
+            usage_stats.num_additions, usage_stats.num_deletions, usage_stats.num_imports
+        );
 
         result_data.per_file.insert(
             proof_file.to_owned(),
@@ -172,8 +174,9 @@ fn main() -> Result<()> {
     println!("Walking proof files took {:?}", start.elapsed());
 
     // Build the reverse tree
-    if let Some(index_of_unsat_clause) = index_of_unsat_clause {
-        let file_with_unsat_clause = &proof_files[index_of_unsat_clause];
+    if let Some(id_of_unsat_clause) = id_of_unsat_clause {
+        let index_of_file_with_unsat_clause = id_of_unsat_clause as usize % proof_files.len();
+        let file_with_unsat_clause = &proof_files[index_of_file_with_unsat_clause];
         println!(
             "Walking {:?} backwards because it contains UNSAT clause...",
             file_with_unsat_clause.display()
@@ -184,39 +187,54 @@ fn main() -> Result<()> {
         let mut important_clauses = 0;
         let mut total_clauses = 0;
         let mut current_important_clauses = FxHashMap::default();
+        let mut clause_gets_deleted_at = FxHashMap::default();
+        let mut last_id = Id::MAX;
         loop {
             let Some(next) = reverse_iterator.next().unwrap() else {
                 break;
             };
-            if let Step::Add(add) = &next {
-                total_clauses += 1;
+            match &next {
+                Step::Add(add_step) => {
+                    last_id = add_step.id;
+                    total_clauses += 1;
 
-                let incoming_edges = current_important_clauses.remove(&add.id);
+                    let incoming_edges = current_important_clauses.remove(&add_step.id);
 
-                let is_critical = add.is_unsat_clause() || incoming_edges.is_some();
-                if is_critical {
-                    for ancestor in &add.hints {
-                        *current_important_clauses.entry(*ancestor).or_default() += 1;
+                    let is_critical = add_step.is_unsat_clause() || incoming_edges.is_some();
+                    if is_critical {
+                        for ancestor in &add_step.hints {
+                            *current_important_clauses.entry(*ancestor).or_default() += 1;
+                        }
+                        important_clauses += 1;
+                    };
+
+                    let lifetime = clause_gets_deleted_at
+                        .remove(&add_step.id)
+                        .unwrap_or(id_of_unsat_clause)
+                        - add_step.id;
+
+                    let metrics = MetricSet {
+                        is_critical,
+                        number_of_literals: add_step.literals.len(),
+                        incoming_edges: add_step.hints.len(),
+                        outgoing_edges: incoming_edges.unwrap_or_default(),
+                        id: add_step.id as usize,
+                        lifetime: lifetime as usize,
+                    };
+                    covariance_set.add_sample(metrics);
+                }
+                Step::Delete(delete_step) => {
+                    for deleted_clause in &delete_step.deleted_clauses {
+                        clause_gets_deleted_at.insert(*deleted_clause, last_id);
                     }
-                    important_clauses += 1;
-                };
-
-                let metrics = MetricSet {
-                    is_critical,
-                    number_of_literals: add.literals.len(),
-                    incoming_edges: add.hints.len(),
-                    outgoing_edges: incoming_edges.unwrap_or_default(),
-                };
-                covariance_set.add_sample(metrics);
+                }
+                _ => {}
             }
         }
         println!(
             "{:?}/{:?} clauses important",
             important_clauses, total_clauses
         );
-
-        use tabled::assert::assert_table;
-        use tabled::{builder::Builder, settings::Style};
 
         let sample_covariance = covariance_set.sample_covariance().unwrap();
         let mut table_builder =

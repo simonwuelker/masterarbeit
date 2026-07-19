@@ -14,16 +14,25 @@ pub(crate) struct Walker {
     imports: FxHashMap<Id, u8>,
     /// For each non-import clause, stores the depth that it was derived from from each import.
     derivatives: FxHashMap<Id, FxHashMap<Id, u8>>,
+
+    num_additions: usize,
+    num_imports: usize,
+    num_deletions: usize,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct UsageStatistics {
     pub import_depth: [usize; TRACK_DERIVATIVES_UP_TO as usize],
     pub unused_imports: Vec<Id>,
+    pub num_additions: usize,
+    pub num_imports: usize,
+    pub num_deletions: usize,
 }
 
 impl Walker {
     pub(crate) fn add_clause(&mut self, clause: &ClauseAddition) {
+        self.num_additions += 1;
+
         let mut derived_by_imports = FxHashMap::default();
         for depends_on in &clause.hints {
             if self.imports.contains_key(depends_on) {
@@ -63,10 +72,14 @@ impl Walker {
     }
 
     pub(crate) fn import_clause(&mut self, import: ClauseImport) {
+        self.num_imports += 1;
+
         self.imports.insert(import.imported_clause, 0);
     }
 
     pub(crate) fn forget_clause(&mut self, id: Id) {
+        self.num_deletions += 1;
+
         // We never forget imports
         let Entry::Occupied(occupied_entry) = self.derivatives.entry(id) else {
             return;
@@ -108,6 +121,9 @@ impl Walker {
         UsageStatistics {
             import_depth: stats,
             unused_imports,
+            num_additions: self.num_additions,
+            num_deletions: self.num_deletions,
+            num_imports: self.num_imports,
         }
     }
 }

@@ -1,12 +1,14 @@
 use crate::online_covariance::OnlineCovariance;
 
-pub(crate) const NUMBER_OF_METRICS: usize = 4;
+pub(crate) const NUMBER_OF_METRICS: usize = 6;
 
 pub(crate) struct MetricSet {
     pub is_critical: bool,
     pub incoming_edges: usize,
     pub outgoing_edges: usize,
     pub number_of_literals: usize,
+    pub id: usize,
+    pub lifetime: usize,
 }
 
 pub(crate) fn metric_name_for(index: usize) -> &'static str {
@@ -15,6 +17,8 @@ pub(crate) fn metric_name_for(index: usize) -> &'static str {
         1 => "# incoming edges",
         2 => "# outgoing edges",
         3 => "# literals",
+        4 => "Clause ID",
+        5 => "Lifetime",
         _ => unreachable!("Metric index out of bounds"),
     }
 }
@@ -26,6 +30,8 @@ impl MetricSet {
             1 => self.incoming_edges as f64,
             2 => self.outgoing_edges as f64,
             3 => self.number_of_literals as f64,
+            4 => self.id as f64,
+            5 => self.lifetime as f64,
             _ => unreachable!("Metric index out of bounds"),
         }
     }
