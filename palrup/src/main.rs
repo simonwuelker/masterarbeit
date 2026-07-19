@@ -3,17 +3,19 @@ use clap::Parser;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use std::{fs, iter};
 
 mod edgelist;
+mod metrics;
 mod online_covariance;
 mod palrup;
 mod reverse_reader;
 mod walker;
 
+use crate::metrics::{metric_name_for, CovarianceSet, MetricSet, NUMBER_OF_METRICS};
 use crate::palrup::{Id, PalrupIterator, Step};
 use crate::reverse_reader::ReversePalrupIterator;
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
@@ -169,17 +171,19 @@ fn main() -> Result<()> {
     }
     println!("Walking proof files took {:?}", start.elapsed());
 
+    // Build the reverse tree
     if let Some(index_of_unsat_clause) = index_of_unsat_clause {
         let file_with_unsat_clause = &proof_files[index_of_unsat_clause];
         println!(
             "Walking {:?} backwards because it contains UNSAT clause...",
             file_with_unsat_clause.display()
         );
+        let mut covariance_set = CovarianceSet::default();
         let mut reverse_iterator = ReversePalrupIterator::for_file(file_with_unsat_clause)
             .context("Failed to create reverse palrup iterator")?;
         let mut important_clauses = 0;
         let mut total_clauses = 0;
-        let mut current_important_clauses = FxHashSet::default();
+        let mut current_important_clauses = FxHashMap::default();
         loop {
             let Some(next) = reverse_iterator.next().unwrap() else {
                 break;
@@ -187,18 +191,63 @@ fn main() -> Result<()> {
             if let Step::Add(add) = &next {
                 total_clauses += 1;
 
-                if add.is_unsat_clause() || current_important_clauses.remove(&add.id) {
+                let incoming_edges = current_important_clauses.remove(&add.id);
+
+                let is_critical = add.is_unsat_clause() || incoming_edges.is_some();
+                if is_critical {
                     for ancestor in &add.hints {
-                        current_important_clauses.insert(*ancestor);
+                        *current_important_clauses.entry(*ancestor).or_default() += 1;
                     }
                     important_clauses += 1;
-                }
+                };
+
+                let metrics = MetricSet {
+                    is_critical,
+                    number_of_literals: add.literals.len(),
+                    incoming_edges: add.hints.len(),
+                    outgoing_edges: incoming_edges.unwrap_or_default(),
+                };
+                covariance_set.add_sample(metrics);
             }
         }
         println!(
             "{:?}/{:?} clauses important",
             important_clauses, total_clauses
         );
+
+        use tabled::assert::assert_table;
+        use tabled::{builder::Builder, settings::Style};
+
+        let sample_covariance = covariance_set.sample_covariance().unwrap();
+        let mut table_builder =
+            Builder::with_capacity(NUMBER_OF_METRICS + 1, NUMBER_OF_METRICS + 1);
+        table_builder.push_record(
+            iter::once("Covariance").chain(
+                (0..NUMBER_OF_METRICS)
+                    .map(|index| metric_name_for(index))
+                    .collect::<Vec<_>>(),
+            ),
+        );
+        for row in 0..NUMBER_OF_METRICS {
+            let mut row_data = Vec::with_capacity(NUMBER_OF_METRICS + 1);
+            row_data.push(metric_name_for(row).to_string());
+            for column in 0..NUMBER_OF_METRICS {
+                if row > column {
+                    row_data.push("".to_string());
+                    continue;
+                }
+
+                row_data.push(sample_covariance[row][column - row].to_string())
+            }
+
+            table_builder.push_record(row_data);
+        }
+
+        let mut table = table_builder.build();
+        table.with(Style::modern());
+        println!("{table}");
+    } else {
+        println!("None of the proof files found a UNSAT clause, skipping reverse treebuilding...");
     }
 
     result_data.unused_imports.sort_unstable();

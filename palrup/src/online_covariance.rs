@@ -20,11 +20,11 @@ impl OnlineCovariance {
         self.covariance += delta_x * (y - self.average_y);
     }
 
-    fn population_covariance(&self) -> Option<f64> {
+    pub(crate) fn population_covariance(&self) -> Option<f64> {
         (self.number_of_samples > 0).then(|| self.covariance / self.number_of_samples as f64)
     }
 
-    fn sample_covariance(&self) -> Option<f64> {
+    pub(crate) fn sample_covariance(&self) -> Option<f64> {
         (self.number_of_samples > 1)
             .then(|| self.covariance / (self.number_of_samples as f64 - 1.0))
     }
