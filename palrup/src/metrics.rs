@@ -98,4 +98,15 @@ impl CovarianceSet {
             .collect::<Option<Vec<_>>>()
             .map(|values| values.try_into().unwrap())
     }
+
+    pub(crate) fn pearson_correlation(&self) -> Option<[Box<[f64]>; NUMBER_OF_METRICS]> {
+        (0..NUMBER_OF_METRICS)
+            .map(|i| {
+                (i..NUMBER_OF_METRICS)
+                    .map(|j| self.covariance_at(i, j).pearson_correlation_coefficient())
+                    .collect::<Option<Box<_>>>()
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|values| values.try_into().unwrap())
+    }
 }

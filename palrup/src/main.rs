@@ -236,11 +236,11 @@ fn main() -> Result<()> {
             important_clauses, total_clauses
         );
 
-        let sample_covariance = covariance_set.sample_covariance().unwrap();
+        let sample_correlation = covariance_set.pearson_correlation().unwrap();
         let mut table_builder =
             Builder::with_capacity(NUMBER_OF_METRICS + 1, NUMBER_OF_METRICS + 1);
         table_builder.push_record(
-            iter::once("Covariance").chain(
+            iter::once("Pearson").chain(
                 (0..NUMBER_OF_METRICS)
                     .map(|index| metric_name_for(index))
                     .collect::<Vec<_>>(),
@@ -255,7 +255,7 @@ fn main() -> Result<()> {
                     continue;
                 }
 
-                row_data.push(sample_covariance[row][column - row].to_string())
+                row_data.push(format!("{:.5}", sample_correlation[row][column - row]));
             }
 
             table_builder.push_record(row_data);

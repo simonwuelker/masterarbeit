@@ -140,6 +140,9 @@ mod tests {
             UsageStatistics {
                 import_depth: [0; TRACK_DERIVATIVES_UP_TO as usize],
                 unused_imports: vec![],
+                num_additions: 0,
+                num_deletions: 0,
+                num_imports: 0
             }
         )
     }
@@ -157,7 +160,10 @@ mod tests {
             walker.finalize(),
             UsageStatistics {
                 import_depth: [2, 0, 0, 0, 0],
-                unused_imports: vec![11, 32]
+                unused_imports: vec![11, 32],
+                num_additions: 0,
+                num_deletions: 0,
+                num_imports: 2
             }
         )
     }
@@ -182,7 +188,10 @@ mod tests {
             walker.finalize(),
             UsageStatistics {
                 import_depth: [0, 1, 1, 0, 0],
-                unused_imports: vec![]
+                unused_imports: vec![],
+                num_additions: 2,
+                num_deletions: 0,
+                num_imports: 2
             }
         )
     }
@@ -214,7 +223,10 @@ mod tests {
             walker.finalize(),
             UsageStatistics {
                 import_depth: [0, 0, 0, 1, 0],
-                unused_imports: vec![]
+                unused_imports: vec![],
+                num_additions: 3,
+                num_deletions: 0,
+                num_imports: 1
             }
         )
     }
@@ -246,7 +258,10 @@ mod tests {
             walker.finalize(),
             UsageStatistics {
                 import_depth: [0, 0, 0, 1, 0],
-                unused_imports: vec![]
+                unused_imports: vec![],
+                num_additions: 3,
+                num_deletions: 0,
+                num_imports: 1
             }
         )
     }
