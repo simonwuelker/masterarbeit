@@ -4,8 +4,7 @@ out.edgelist
 graphvise.txt
 graphvise_coloring.txt
 out.json
-import-generations.svg
-unused-imports-per-communication-step.svg
+*.svg
 track_main_2025.uri
 instances
 database.db

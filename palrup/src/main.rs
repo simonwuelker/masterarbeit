@@ -10,12 +10,14 @@ use std::{fs, iter};
 use tabled::{builder::Builder, settings::Style};
 
 mod edgelist;
+mod histograms;
 mod metrics;
 mod online_covariance;
 mod palrup;
 mod reverse_reader;
 mod walker;
 
+use crate::histograms::HistogramSet;
 use crate::metrics::{metric_name_for, CovarianceSet, MetricSet, NUMBER_OF_METRICS};
 use crate::palrup::{Id, PalrupIterator, Step};
 use crate::reverse_reader::ReversePalrupIterator;
@@ -79,6 +81,7 @@ fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBu
 struct ResultData {
     per_file: HashMap<PathBuf, PerFileInfo>,
     unused_imports: Vec<Id>,
+    histogram_set: Option<HistogramSet>,
 }
 
 fn main() -> Result<()> {
@@ -181,7 +184,10 @@ fn main() -> Result<()> {
             "Walking {:?} backwards because it contains UNSAT clause...",
             file_with_unsat_clause.display()
         );
+
         let mut covariance_set = CovarianceSet::default();
+        let mut histogram_set = HistogramSet::default();
+
         let mut reverse_iterator = ReversePalrupIterator::for_file(file_with_unsat_clause)
             .context("Failed to create reverse palrup iterator")?;
         let mut important_clauses = 0;
@@ -222,6 +228,7 @@ fn main() -> Result<()> {
                         lifetime: lifetime as usize,
                     };
                     covariance_set.add_sample(metrics);
+                    histogram_set.add_sample(metrics);
                 }
                 Step::Delete(delete_step) => {
                     for deleted_clause in &delete_step.deleted_clauses {
@@ -231,6 +238,7 @@ fn main() -> Result<()> {
                 _ => {}
             }
         }
+        result_data.histogram_set = Some(histogram_set);
         println!(
             "{:?}/{:?} clauses important",
             important_clauses, total_clauses

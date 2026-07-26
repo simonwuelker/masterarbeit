@@ -132,7 +132,28 @@ def plot_unused_imports_per_generation(data):
     # ax.set_yscale("log")
     plt.savefig("unused-imports-per-communication-step.svg")
 
+def plot_single_histogram(ax, title, histogram_data):
+    ax.set_title(title + " size " + str(histogram_data["bucket_size"]))
+    x = sorted(map(int, histogram_data["buckets"].keys()))
+    y = np.array([histogram_data["buckets"][str(v)] for v in x], dtype=float)
+
+    ax.bar(x, y)
+
+def plot_histograms(data):
+    histogram_set = data["histogram_set"]
+
+    fig, axs = plt.subplots(2, 3, constrained_layout = True)
+
+    plot_single_histogram(axs[0, 0], "Incoming Edges", histogram_set["incoming_edges"])
+    plot_single_histogram(axs[0, 1], "Outgoing Edges", histogram_set["outgoing_edges"])
+    plot_single_histogram(axs[0, 2], "Number of literals", histogram_set["number_of_literals"])
+    plot_single_histogram(axs[1, 0], "Clause ID", histogram_set["id"])
+    plot_single_histogram(axs[1, 1], "Lifetime", histogram_set["lifetime"])
+
+    plt.savefig("histograms.svg")
+
 plot_import_generations(data)
 plot_unused_imports_per_generation(data)
+plot_histograms(data)
 if args.show_plots:
     plt.show()

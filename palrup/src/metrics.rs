@@ -2,6 +2,7 @@ use crate::online_covariance::OnlineCovariance;
 
 pub(crate) const NUMBER_OF_METRICS: usize = 6;
 
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct MetricSet {
     pub is_critical: bool,
     pub incoming_edges: usize,
