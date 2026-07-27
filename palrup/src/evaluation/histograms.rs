@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 
-use crate::metrics::MetricSet;
+use super::metrics::MetricSet;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct HistogramSet {

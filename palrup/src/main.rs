@@ -10,15 +10,13 @@ use std::{fs, iter};
 use tabled::{builder::Builder, settings::Style};
 
 mod edgelist;
-mod histograms;
-mod metrics;
-mod online_covariance;
+mod evaluation;
 mod palrup;
 mod reverse_reader;
 mod walker;
 
-use crate::histograms::HistogramSet;
-use crate::metrics::{metric_name_for, CovarianceSet, MetricSet, NUMBER_OF_METRICS};
+use crate::evaluation::histograms::HistogramSet;
+use crate::evaluation::metrics::{metric_name_for, CovarianceSet, MetricSet, NUMBER_OF_METRICS};
 use crate::palrup::{Id, PalrupIterator, Step};
 use crate::reverse_reader::ReversePalrupIterator;
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};

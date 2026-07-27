@@ -1,4 +1,4 @@
-use crate::online_covariance::OnlineCovariance;
+use super::online_covariance::OnlineCovariance;
 
 pub(crate) const NUMBER_OF_METRICS: usize = 6;
 
