@@ -1,13 +1,15 @@
+use std::collections::hash_map::Entry;
 use std::fs::File;
 use std::mem;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{
     io::{self, BufReader, Read, Seek, SeekFrom},
     iter::Rev,
 };
 
-use crate::palrup;
+use crate::palrup::{self, Id, Step};
 use anyhow::{Context, Result};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 struct ChunkIterator<R: Read + Seek, const N: usize> {
     reader: R,
@@ -112,6 +114,150 @@ impl ReversePalrupIterator<BufReader<File>> {
         let reader = BufReader::new(file);
 
         Ok(Self::new(reader)?)
+    }
+}
+
+pub(crate) struct ReverseDAGIterator<'a> {
+    info: &'a ReverseDAGInfo,
+    palrup_files: &'a [PathBuf],
+}
+
+pub(crate) struct ReverseDAGInfo {
+    /// Maps from solver id to the roots of the important-dag-subtrees in that solvers file.
+    important_roots: FxHashMap<usize, FxHashSet<Id>>,
+}
+
+pub(crate) struct StepInfo {
+    pub(crate) is_critical: bool,
+    pub(crate) step: Step,
+}
+
+impl<'a> ReverseDAGIterator<'a> {
+    pub(crate) fn new(info: &'a ReverseDAGInfo, palrup_files: &'a [PathBuf]) -> Self {
+        Self { info, palrup_files }
+    }
+
+    // pub(crate) fn next(&mut self) -> io::Result<StepInfo> {
+    //     if self.current_iterator.is_none() {
+    //         // Find the next solver file that we should iterate over.
+    //         let Some(thread_id) = self.important_roots.keys().next().copied() else {
+    //             println!("No more work to do");
+    //             break;
+    //         };
+    //         let mut unprocessed_imports_for_thread =
+    //             unprocessed_imports.remove(&thread_id).unwrap();
+    //         debug_assert!(!unprocessed_imports_for_thread.is_empty());
+    //     }
+    // }
+}
+
+impl ReverseDAGInfo {
+    pub(crate) fn compute(palrup_files: &'a [PathBuf], id_of_unsat_clause: isize) -> Self {
+        let solver_that_derived_clause =
+            |clause_id: Id| -> usize { (clause_id as usize) % palrup_files.len() };
+
+        // Contains all imports which extend the reverse DAG into another file AND that we have not looked at.
+        // Maps from the solver ID to the list of such imports for that solver.
+        let mut unprocessed_imports: FxHashMap<usize, FxHashSet<Id>> = FxHashMap::default();
+        let solver_that_derived_unsat_clause = solver_that_derived_clause(id_of_unsat_clause);
+        unprocessed_imports
+            .entry(solver_that_derived_unsat_clause)
+            .or_default()
+            .insert(id_of_unsat_clause as Id);
+
+        // For each solver, contains all clause IDs that will later be imported by another solver thread, causing them
+        // to contribute to solving the problem. In other words, these clauses are critical even if they are not used
+        // by the creator solver thread at all.
+        let mut critical_clause_roots: FxHashMap<usize, FxHashSet<Id>> = Default::default();
+        critical_clause_roots
+            .entry(solver_that_derived_unsat_clause)
+            .or_default()
+            .insert(id_of_unsat_clause);
+
+        for i in 0.. {
+            // Find next solver thread that still has work to do.
+            let Some(thread_id) = unprocessed_imports.keys().next().copied() else {
+                println!("No more work to do");
+                break;
+            };
+            let mut unprocessed_imports_for_thread =
+                unprocessed_imports.remove(&thread_id).unwrap();
+            debug_assert!(!unprocessed_imports_for_thread.is_empty());
+
+            println!(
+                "Iteration {i}: Found {} unprocessed DAG roots for thread {}",
+                unprocessed_imports_for_thread.len(),
+                thread_id
+            );
+
+            let mut reverse_iterator =
+                ReversePalrupIterator::for_file(&palrup_files[thread_id]).unwrap();
+            let mut current_important_clauses: FxHashSet<Id> = FxHashSet::default();
+            loop {
+                let Some(next) = reverse_iterator.next().unwrap() else {
+                    break;
+                };
+                match &next {
+                    Step::Add(add_step) => {
+                        // This will only consider clauses critical that we have not looked at, or that derive an ancestor that
+                        // we have not looked at.
+                        let is_critical = current_important_clauses.remove(&add_step.id)
+                            || unprocessed_imports_for_thread.remove(&add_step.id);
+                        if is_critical {
+                            for ancestor in &add_step.hints {
+                                current_important_clauses.insert(*ancestor);
+                            }
+                        };
+                    }
+                    _ => {}
+                }
+            }
+
+            debug_assert!(
+                unprocessed_imports.is_empty(),
+                "Didn't find all the imported clauses we were looking for?"
+            );
+            debug_assert!(
+                current_important_clauses
+                    .iter()
+                    .all(|clause| solver_that_derived_clause(*clause) != thread_id),
+                "Didn't find all clause additions we were looking for?"
+            );
+
+            let mut new_roots = 0;
+            for imported_clause_that_is_important in current_important_clauses.drain() {
+                let imported_from = solver_that_derived_clause(imported_clause_that_is_important);
+                if critical_clause_roots
+                    .entry(imported_from)
+                    .or_default()
+                    .insert(imported_clause_that_is_important)
+                {
+                    // This clause is an important root AND we did not know about it previously
+                    unprocessed_imports
+                        .entry(imported_from)
+                        .or_default()
+                        .insert(imported_clause_that_is_important);
+                    new_roots += 1;
+                }
+            }
+            println!(
+                "Found {} new roots that need further processing...",
+                new_roots
+            );
+        }
+
+        println!(
+            "Reverse DAG has {} roots from {} different threads",
+            critical_clause_roots
+                .values()
+                .map(|clauses| clauses.len())
+                .sum::<usize>(),
+            critical_clause_roots.len()
+        );
+
+        Self {
+            important_roots: critical_clause_roots,
+        }
     }
 }
 

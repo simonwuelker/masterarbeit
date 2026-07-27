@@ -18,7 +18,7 @@ mod walker;
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{metric_name_for, CovarianceSet, MetricSet, NUMBER_OF_METRICS};
 use crate::palrup::{Id, PalrupIterator, Step};
-use crate::reverse_reader::ReversePalrupIterator;
+use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator, ReversePalrupIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 
 /// Transpiler from PalRup proof files to edge lists
@@ -176,6 +176,8 @@ fn main() -> Result<()> {
 
     // Build the reverse tree
     if let Some(id_of_unsat_clause) = id_of_unsat_clause {
+        let reverse_iterator = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause);
+        return Ok(());
         let index_of_file_with_unsat_clause = id_of_unsat_clause as usize % proof_files.len();
         let file_with_unsat_clause = &proof_files[index_of_file_with_unsat_clause];
         println!(
