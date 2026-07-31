@@ -37,6 +37,10 @@ impl OnlineCovariance {
             .then(|| self.covariance / (self.number_of_samples as f64 - 1.0))
     }
 
+    pub(crate) fn number_of_samples(&self) -> usize {
+        self.number_of_samples
+    }
+
     pub(crate) fn pearson_correlation_coefficient(&self) -> Option<f64> {
         if self.number_of_samples == 0 {
             return None;

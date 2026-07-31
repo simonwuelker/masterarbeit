@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::fs::File;
 use std::mem;
 use std::path::{Path, PathBuf};
@@ -118,8 +117,9 @@ impl ReversePalrupIterator<BufReader<File>> {
 }
 
 pub(crate) struct ReverseDAGIterator<'a> {
-    info: &'a ReverseDAGInfo,
+    important_roots: std::collections::hash_map::Iter<'a, usize, FxHashSet<Id>>,
     palrup_files: &'a [PathBuf],
+    current_file: Option<(ReversePalrupIterator<BufReader<File>>, FxHashSet<Id>)>,
 }
 
 pub(crate) struct ReverseDAGInfo {
@@ -134,25 +134,51 @@ pub(crate) struct StepInfo {
 
 impl<'a> ReverseDAGIterator<'a> {
     pub(crate) fn new(info: &'a ReverseDAGInfo, palrup_files: &'a [PathBuf]) -> Self {
-        Self { info, palrup_files }
+        Self {
+            important_roots: info.important_roots.iter(),
+            palrup_files,
+            current_file: None,
+        }
     }
 
-    // pub(crate) fn next(&mut self) -> io::Result<StepInfo> {
-    //     if self.current_iterator.is_none() {
-    //         // Find the next solver file that we should iterate over.
-    //         let Some(thread_id) = self.important_roots.keys().next().copied() else {
-    //             println!("No more work to do");
-    //             break;
-    //         };
-    //         let mut unprocessed_imports_for_thread =
-    //             unprocessed_imports.remove(&thread_id).unwrap();
-    //         debug_assert!(!unprocessed_imports_for_thread.is_empty());
-    //     }
-    // }
+    pub(crate) fn next(&mut self) -> Result<Option<StepInfo>> {
+        if let Some((current_file_iterator, important_ids)) = self.current_file.as_mut() {
+            if let Some(next_step_in_current_file) = current_file_iterator.next()? {
+                let is_critical = match &next_step_in_current_file {
+                    Step::Add(add) => {
+                        let is_important = important_ids.remove(&add.id);
+                        if is_important {
+                            for derived_from in &add.hints {
+                                important_ids.insert(*derived_from);
+                            }
+                        }
+                        is_important
+                    }
+                    Step::Import(import) => important_ids.remove(&import.imported_clause),
+                    Step::Delete(_) => false,
+                };
+                return Ok(Some(StepInfo {
+                    is_critical,
+                    step: next_step_in_current_file,
+                }));
+            }
+        }
+        // If we get here then either there is no current file or the current file is exhausted.
+        let Some((index_of_next_file, important_roots)) = self.important_roots.next() else {
+            return Ok(None);
+        };
+        let filename = &self.palrup_files[*index_of_next_file];
+
+        self.current_file = Some((
+            ReversePalrupIterator::for_file(filename)?,
+            important_roots.clone(),
+        ));
+        self.next()
+    }
 }
 
 impl ReverseDAGInfo {
-    pub(crate) fn compute(palrup_files: &'a [PathBuf], id_of_unsat_clause: isize) -> Self {
+    pub(crate) fn compute(palrup_files: &[PathBuf], id_of_unsat_clause: isize) -> Self {
         let solver_that_derived_clause =
             |clause_id: Id| -> usize { (clause_id as usize) % palrup_files.len() };
 

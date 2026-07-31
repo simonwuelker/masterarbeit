@@ -18,7 +18,7 @@ mod walker;
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{metric_name_for, CovarianceSet, MetricSet, NUMBER_OF_METRICS};
 use crate::palrup::{Id, PalrupIterator, Step};
-use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator, ReversePalrupIterator};
+use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 
 /// Transpiler from PalRup proof files to edge lists
@@ -176,43 +176,26 @@ fn main() -> Result<()> {
 
     // Build the reverse tree
     if let Some(id_of_unsat_clause) = id_of_unsat_clause {
-        let reverse_iterator = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause);
-        return Ok(());
-        let index_of_file_with_unsat_clause = id_of_unsat_clause as usize % proof_files.len();
-        let file_with_unsat_clause = &proof_files[index_of_file_with_unsat_clause];
-        println!(
-            "Walking {:?} backwards because it contains UNSAT clause...",
-            file_with_unsat_clause.display()
-        );
+        println!("Constructing reverse DAG...");
+        let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause);
+        let mut reverse_dag_iterator = ReverseDAGIterator::new(&info, &proof_files);
 
         let mut covariance_set = CovarianceSet::default();
         let mut histogram_set = HistogramSet::default();
 
-        let mut reverse_iterator = ReversePalrupIterator::for_file(file_with_unsat_clause)
-            .context("Failed to create reverse palrup iterator")?;
         let mut important_clauses = 0;
         let mut total_clauses = 0;
-        let mut current_important_clauses = FxHashMap::default();
         let mut clause_gets_deleted_at = FxHashMap::default();
         let mut last_id = Id::MAX;
-        loop {
-            let Some(next) = reverse_iterator.next().unwrap() else {
-                break;
-            };
-            match &next {
+        while let Some(next) = reverse_dag_iterator.next()? {
+            match &next.step {
                 Step::Add(add_step) => {
+                    if next.is_critical {
+                        important_clauses += 1;
+                    }
+
                     last_id = add_step.id;
                     total_clauses += 1;
-
-                    let incoming_edges = current_important_clauses.remove(&add_step.id);
-
-                    let is_critical = add_step.is_unsat_clause() || incoming_edges.is_some();
-                    if is_critical {
-                        for ancestor in &add_step.hints {
-                            *current_important_clauses.entry(*ancestor).or_default() += 1;
-                        }
-                        important_clauses += 1;
-                    };
 
                     let lifetime = clause_gets_deleted_at
                         .remove(&add_step.id)
@@ -220,10 +203,10 @@ fn main() -> Result<()> {
                         - add_step.id;
 
                     let metrics = MetricSet {
-                        is_critical,
+                        is_critical: next.is_critical,
                         number_of_literals: add_step.literals.len(),
                         incoming_edges: add_step.hints.len(),
-                        outgoing_edges: incoming_edges.unwrap_or_default(),
+                        outgoing_edges: add_step.hints.len(), // FIXME
                         id: add_step.id as usize,
                         lifetime: lifetime as usize,
                     };
