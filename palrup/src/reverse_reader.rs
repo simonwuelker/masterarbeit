@@ -203,14 +203,14 @@ impl ReverseDAGInfo {
         for i in 0.. {
             // Find next solver thread that still has work to do.
             let Some(thread_id) = unprocessed_imports.keys().next().copied() else {
-                println!("No more work to do");
+                log::debug!("No more work to do");
                 break;
             };
             let mut unprocessed_imports_for_thread =
                 unprocessed_imports.remove(&thread_id).unwrap();
             debug_assert!(!unprocessed_imports_for_thread.is_empty());
 
-            println!(
+            log::debug!(
                 "Iteration {i}: Found {} unprocessed DAG roots for thread {}",
                 unprocessed_imports_for_thread.len(),
                 thread_id
@@ -266,13 +266,13 @@ impl ReverseDAGInfo {
                     new_roots += 1;
                 }
             }
-            println!(
+            log::debug!(
                 "Found {} new roots that need further processing...",
                 new_roots
             );
         }
 
-        println!(
+        log::info!(
             "Reverse DAG has {} roots from {} different threads",
             critical_clause_roots
                 .values()

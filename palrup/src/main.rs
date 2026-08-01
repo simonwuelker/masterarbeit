@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, iter};
 use tabled::{builder::Builder, settings::Style};
+use env_logger::Env;
 
 mod edgelist;
 mod evaluation;
@@ -48,7 +49,7 @@ fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBu
                     for entry in fs::read_dir(solver_thread_directory.path())? {
                         let entry = entry?;
                         if entry.file_type()?.is_dir() {
-                            eprintln!(
+                            log::warn!(
                                 "Found unexpected directory {:?} in proof directory ({:?})",
                                 entry.file_name(),
                                 solver_thread_directory.path().display()
@@ -58,14 +59,14 @@ fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBu
                         }
                     }
                 } else {
-                    eprintln!(
+                    log::warn!(
                         "Found unexpected file {:?} in proof directory",
                         solver_thread_directory.file_name()
                     );
                 }
             }
         } else {
-            eprintln!(
+            log::warn!(
                 "Found unexpected file {:?} in proof directory",
                 solver_process_directory.file_name()
             );
@@ -83,6 +84,8 @@ struct ResultData {
 }
 
 fn main() -> Result<()> {
+    env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
+
     let args = Args::parse();
     let out_file = fs::File::create(&args.output_file).with_context(|| {
         format!(
@@ -101,7 +104,6 @@ fn main() -> Result<()> {
     let start = Instant::now();
     let mut id_of_unsat_clause = None;
     for (index, proof_file) in proof_files.iter().enumerate() {
-        print!("File {index}: {:?} ", proof_file.display());
         writer.add_comment(&format!("File {index}: {:?}", proof_file.display()))?;
 
         let iterator = PalrupIterator::for_file(proof_file)?;
@@ -155,8 +157,8 @@ fn main() -> Result<()> {
         }
 
         let usage_stats = walker.finalize();
-        println!(
-            "{step_count} steps, {:?} clauses added, {:?} clauses deleted, {:?} clauses imported",
+        log::info!(
+            "File {index}: {:?} {step_count} steps, {:?} clauses added, {:?} clauses deleted, {:?} clauses imported", proof_file.display(),
             usage_stats.num_additions, usage_stats.num_deletions, usage_stats.num_imports
         );
 
@@ -172,11 +174,11 @@ fn main() -> Result<()> {
             .unused_imports
             .extend_from_slice(&usage_stats.unused_imports);
     }
-    println!("Walking proof files took {:?}", start.elapsed());
+    log::debug!("Walking proof files took {:?}", start.elapsed());
 
     // Build the reverse tree
     if let Some(id_of_unsat_clause) = id_of_unsat_clause {
-        println!("Constructing reverse DAG...");
+        log::info!("Constructing reverse DAG...");
         let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause);
         let mut reverse_dag_iterator = ReverseDAGIterator::new(&info, &proof_files);
 
@@ -222,7 +224,7 @@ fn main() -> Result<()> {
             }
         }
         result_data.histogram_set = Some(histogram_set);
-        println!(
+        log::info!(
             "{:?}/{:?} clauses important",
             important_clauses, total_clauses
         );
