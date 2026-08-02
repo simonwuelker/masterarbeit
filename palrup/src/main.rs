@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use env_logger::Env;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -8,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, iter};
 use tabled::{builder::Builder, settings::Style};
-use env_logger::Env;
 
 mod edgelist;
 mod evaluation;
@@ -189,6 +189,7 @@ fn main() -> Result<()> {
         let mut total_clauses = 0;
         let mut clause_gets_deleted_at = FxHashMap::default();
         let mut last_id = Id::MAX;
+        let mut unused_clauses = 0;
         while let Some(next) = reverse_dag_iterator.next()? {
             match &next.step {
                 Step::Add(add_step) => {
@@ -208,10 +209,13 @@ fn main() -> Result<()> {
                         is_critical: next.is_critical,
                         number_of_literals: add_step.literals.len(),
                         incoming_edges: add_step.hints.len(),
-                        outgoing_edges: add_step.hints.len(), // FIXME
+                        outgoing_edges: next.outgoing_edges,
                         id: add_step.id as usize,
                         lifetime: lifetime as usize,
                     };
+                    if next.outgoing_edges == 0 {
+                        unused_clauses += 1;
+                    }
                     covariance_set.add_sample(metrics);
                     histogram_set.add_sample(metrics);
                 }
@@ -223,10 +227,12 @@ fn main() -> Result<()> {
                 _ => {}
             }
         }
+        println!("{unused_clauses:?} unused clauses total");
         result_data.histogram_set = Some(histogram_set);
         log::info!(
             "{:?}/{:?} clauses important",
-            important_clauses, total_clauses
+            important_clauses,
+            total_clauses
         );
 
         let sample_correlation = covariance_set.pearson_correlation().unwrap();

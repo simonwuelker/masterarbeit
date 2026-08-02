@@ -137,6 +137,8 @@ def plot_single_histogram(ax, title, histogram_data):
     x = sorted(map(int, histogram_data["buckets"].keys()))
     y = np.array([histogram_data["buckets"][str(v)] for v in x], dtype=float)
 
+    if np.max(y) / np.min(y) > 50:
+        ax.set_yscale("log")
     ax.bar(x, y)
 
 def plot_histograms(data):
