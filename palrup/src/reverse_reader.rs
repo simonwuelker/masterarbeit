@@ -118,10 +118,16 @@ impl ReversePalrupIterator<BufReader<File>> {
 
 pub(crate) struct ReverseDAGIterator<'a> {
     important_roots: std::collections::hash_map::Iter<'a, usize, FxHashSet<Id>>,
-    /// Maps from clause ID to the number of clauses so far that have been derived from it.
-    outgoing_edges_for: FxHashMap<Id, usize>,
+    /// Maps from clause ID to statistics on how that clause has been used.
+    clause_stats: FxHashMap<Id, ClauseStats>,
     palrup_files: &'a [PathBuf],
     current_file: Option<(ReversePalrupIterator<BufReader<File>>, FxHashSet<Id>)>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ClauseStats {
+    number_of_outgoing_edges: usize,
+    first_used_at: Id,
 }
 
 pub(crate) struct ReverseDAGInfo {
@@ -132,6 +138,7 @@ pub(crate) struct ReverseDAGInfo {
 pub(crate) struct StepInfo {
     pub(crate) is_critical: bool,
     pub(crate) outgoing_edges: usize,
+    pub(crate) minimum_lifetime: usize,
     pub(crate) step: Step,
 }
 
@@ -141,14 +148,15 @@ impl<'a> ReverseDAGIterator<'a> {
             important_roots: info.important_roots.iter(),
             palrup_files,
             current_file: None,
-            outgoing_edges_for: Default::default(),
+            clause_stats: Default::default(),
         }
     }
 
     pub(crate) fn next(&mut self) -> Result<Option<StepInfo>> {
         if let Some((current_file_iterator, important_ids)) = self.current_file.as_mut() {
             if let Some(next_step_in_current_file) = current_file_iterator.next()? {
-                let mut outgoing_edges = 0;
+                let mut clause_stats = None;
+                let mut minimum_lifetime = 0;
                 let is_critical = match &next_step_in_current_file {
                     Step::Add(add) => {
                         let is_important = important_ids.remove(&add.id);
@@ -158,10 +166,20 @@ impl<'a> ReverseDAGIterator<'a> {
                             }
                         }
                         for derived_from in &add.hints {
-                            *self.outgoing_edges_for.entry(*derived_from).or_default() += 1;
+                            self.clause_stats
+                                .entry(*derived_from)
+                                .or_insert(ClauseStats {
+                                    number_of_outgoing_edges: 0,
+                                    first_used_at: add.id,
+                                })
+                                .number_of_outgoing_edges += 1;
                         }
-                        outgoing_edges =
-                            self.outgoing_edges_for.remove(&add.id).unwrap_or_default();
+                        clause_stats = self.clause_stats.remove(&add.id);
+
+                        minimum_lifetime = (clause_stats
+                            .map(|stats| stats.first_used_at)
+                            .unwrap_or(add.id)
+                            - add.id) as usize;
                         is_important
                     }
                     Step::Import(import) => important_ids.remove(&import.imported_clause),
@@ -169,7 +187,11 @@ impl<'a> ReverseDAGIterator<'a> {
                 };
                 return Ok(Some(StepInfo {
                     is_critical,
-                    outgoing_edges,
+                    outgoing_edges: clause_stats
+                        .as_ref()
+                        .map(|stats| stats.number_of_outgoing_edges)
+                        .unwrap_or_default(),
+                    minimum_lifetime,
                     step: next_step_in_current_file,
                 }));
             }

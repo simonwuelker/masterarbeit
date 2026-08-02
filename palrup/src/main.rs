@@ -212,6 +212,7 @@ fn main() -> Result<()> {
                         outgoing_edges: next.outgoing_edges,
                         id: add_step.id as usize,
                         lifetime: lifetime as usize,
+                        minimum_lifetime: next.minimum_lifetime,
                     };
                     if next.outgoing_edges == 0 {
                         unused_clauses += 1;
