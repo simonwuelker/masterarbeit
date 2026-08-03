@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use env_logger::Env;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -10,7 +11,7 @@ use std::time::Instant;
 use std::{fs, iter};
 use tabled::{builder::Builder, settings::Style};
 
-mod edgelist;
+// mod edgelist;
 mod evaluation;
 mod palrup;
 mod reverse_reader;
@@ -87,92 +88,37 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
 
     let args = Args::parse();
-    let out_file = fs::File::create(&args.output_file).with_context(|| {
-        format!(
-            "Failed to create output graph file {}",
-            args.output_file.display()
-        )
-    })?;
-
-    let mut writer = edgelist::Writer::new(BufWriter::new(out_file));
+    // let out_file = fs::File::create(&args.output_file).with_context(|| {
+    //     format!(
+    //         "Failed to create output graph file {}",
+    //         args.output_file.display()
+    //     )
+    // })?;
 
     // Walk dir for solver processes
     let proof_files = find_proof_files(&args.proof_directory)?;
 
-    let mut max = Id::MAX;
     let mut result_data = ResultData::default();
     let start = Instant::now();
+    let mut per_file_forward_info = Vec::with_capacity(proof_files.len());
+    proof_files
+        .par_iter()
+        .map(|proof_file| forward_parse_single_file(proof_file))
+        .collect_into_vec(&mut per_file_forward_info);
+
+    // Coalesce results that we collected in parallel
     let mut id_of_unsat_clause = None;
-    for (index, proof_file) in proof_files.iter().enumerate() {
-        writer.add_comment(&format!("File {index}: {:?}", proof_file.display()))?;
-
-        let iterator = PalrupIterator::for_file(proof_file)?;
-        let mut unused_imports = HashSet::new();
-
-        let mut walker = Walker::default();
-
-        let mut n_imports = 0;
-        let mut import_remapping = HashMap::new();
-
-        let mut step_count = 0;
-        for entry in iterator {
-            match entry? {
-                Step::Add(add) => {
-                    walker.add_clause(&add);
-                    if add.is_unsat_clause() {
-                        id_of_unsat_clause = Some(add.id);
-                    }
-                    for derived_from in add.hints {
-                        // if derived_from < *min_id {
-                        //     continue;
-                        // }
-                        let remapped_node =
-                            import_remapping.get(&derived_from).unwrap_or(&derived_from);
-                        unused_imports.remove(remapped_node);
-                        writer.add_connection(derived_from, add.id)?;
-                    }
-                }
-                Step::Import(import) => {
-                    n_imports += 1;
-                    let import_node = max;
-                    max -= 1;
-                    import_remapping.insert(import.imported_clause, import_node);
-
-                    writer.add_comment(&format!(
-                        "Import {} as {import_node}",
-                        import.imported_clause
-                    ))?;
-                    writer.add_connection(import.imported_clause, import_node)?;
-                    unused_imports.insert(import_node);
-
-                    walker.import_clause(import);
-                }
-                Step::Delete(deletion) => {
-                    for clause in deletion.deleted_clauses {
-                        walker.forget_clause(clause);
-                    }
-                }
-            }
-            step_count += 1;
+    for (index, file_forward_info) in per_file_forward_info.into_iter().enumerate() {
+        if let Some(unsat_clause) = file_forward_info.id_of_unsat_clause {
+            assert!(
+                id_of_unsat_clause.is_none(),
+                "Multiple threads found unsat clause?"
+            );
+            id_of_unsat_clause = Some(unsat_clause);
         }
-
-        let usage_stats = walker.finalize();
-        log::info!(
-            "File {index}: {:?} {step_count} steps, {:?} clauses added, {:?} clauses deleted, {:?} clauses imported", proof_file.display(),
-            usage_stats.num_additions, usage_stats.num_deletions, usage_stats.num_imports
-        );
-
-        result_data.per_file.insert(
-            proof_file.to_owned(),
-            PerFileInfo {
-                import_depths: usage_stats
-                    .import_depth
-                    .map(|depth| depth as f32 / n_imports as f32),
-            },
-        );
         result_data
-            .unused_imports
-            .extend_from_slice(&usage_stats.unused_imports);
+            .per_file
+            .insert(proof_files[index].to_owned(), file_forward_info);
     }
     log::debug!("Walking proof files took {:?}", start.elapsed());
 
@@ -189,7 +135,6 @@ fn main() -> Result<()> {
         let mut total_clauses = 0;
         let mut clause_gets_deleted_at = FxHashMap::default();
         let mut last_id = Id::MAX;
-        let mut unused_clauses = 0;
         while let Some(next) = reverse_dag_iterator.next()? {
             match &next.step {
                 Step::Add(add_step) => {
@@ -214,9 +159,6 @@ fn main() -> Result<()> {
                         lifetime: lifetime as usize,
                         minimum_lifetime: next.minimum_lifetime,
                     };
-                    if next.outgoing_edges == 0 {
-                        unused_clauses += 1;
-                    }
                     covariance_set.add_sample(metrics);
                     histogram_set.add_sample(metrics);
                 }
@@ -228,7 +170,6 @@ fn main() -> Result<()> {
                 _ => {}
             }
         }
-        println!("{unused_clauses:?} unused clauses total");
         result_data.histogram_set = Some(histogram_set);
         log::info!(
             "{:?}/{:?} clauses important",
@@ -282,5 +223,54 @@ fn main() -> Result<()> {
 
 #[derive(Debug, Default, Serialize)]
 struct PerFileInfo {
+    id_of_unsat_clause: Option<Id>,
     import_depths: [f32; TRACK_DERIVATIVES_UP_TO as usize],
+}
+
+fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
+    let proof_file = proof_file.as_ref();
+
+    let iterator = PalrupIterator::for_file(proof_file).unwrap();
+    let mut unused_imports = FxHashSet::default();
+    let mut walker = Walker::default();
+
+    let mut id_of_unsat_clause = None;
+    let mut step_count = 0;
+    for entry in iterator {
+        match entry.unwrap() {
+            Step::Add(add) => {
+                walker.add_clause(&add);
+                if add.is_unsat_clause() {
+                    id_of_unsat_clause = Some(add.id);
+                }
+                for derived_from in add.hints {
+                    unused_imports.remove(&derived_from);
+                }
+            }
+            Step::Import(import) => {
+                unused_imports.insert(import.imported_clause);
+
+                walker.import_clause(import);
+            }
+            Step::Delete(deletion) => {
+                for clause in deletion.deleted_clauses {
+                    walker.forget_clause(clause);
+                }
+            }
+        }
+        step_count += 1;
+    }
+
+    let usage_stats = walker.finalize();
+    log::info!(
+        "{:?}: {step_count} steps, {:?} clauses added, {:?} clauses deleted, {:?} clauses imported, has UNSAT clause: {:?}", proof_file.display(),
+        usage_stats.num_additions, usage_stats.num_deletions, usage_stats.num_imports, id_of_unsat_clause.is_some()
+    );
+
+    PerFileInfo {
+        id_of_unsat_clause,
+        import_depths: usage_stats
+            .import_depth
+            .map(|depth| depth as f32 / usage_stats.num_imports as f32),
+    }
 }
