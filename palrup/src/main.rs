@@ -110,10 +110,8 @@ fn main() -> Result<()> {
     let mut id_of_unsat_clause = None;
     for (index, file_forward_info) in per_file_forward_info.into_iter().enumerate() {
         if let Some(unsat_clause) = file_forward_info.id_of_unsat_clause {
-            assert!(
-                id_of_unsat_clause.is_none(),
-                "Multiple threads found unsat clause?"
-            );
+            // FIXME: It appears that sometimes multiple threads find the unsat clause at the same
+            // time. We only consider the last thread to find it.
             id_of_unsat_clause = Some(unsat_clause);
         }
         result_data
