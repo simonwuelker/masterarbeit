@@ -48,7 +48,7 @@ impl<R: Read + Seek, const N: usize> ChunkIterator<R, N> {
     }
 }
 
-const CHUNK_SIZE: usize = 1 << 20;
+const CHUNK_SIZE: usize = 1 << 24;
 
 pub(crate) struct ReversePalrupIterator<R: Read + Seek> {
     chunk_iterator: ChunkIterator<R, CHUNK_SIZE>,
