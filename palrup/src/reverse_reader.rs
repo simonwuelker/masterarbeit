@@ -224,6 +224,11 @@ impl ReverseDAGInfo {
         // Maps from the solver ID to the list of such imports for that solver.
         let mut unprocessed_imports: FxHashMap<usize, FxHashSet<Id>> = FxHashMap::default();
         let solver_that_derived_unsat_clause = solver_that_derived_clause(id_of_unsat_clause);
+        log::info!(
+            "Starting from UNSAT clause {} derived by thread {}",
+            id_of_unsat_clause,
+            solver_that_derived_unsat_clause
+        );
         unprocessed_imports
             .entry(solver_that_derived_unsat_clause)
             .or_default()
