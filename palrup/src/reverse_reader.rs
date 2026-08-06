@@ -286,6 +286,12 @@ impl ReverseDAGInfo {
             let mut new_roots = 0;
             for imported_clause_that_is_important in current_important_clauses.drain() {
                 let imported_from = solver_that_derived_clause(imported_clause_that_is_important);
+                debug_assert_ne!(
+                    imported_from,
+                    thread_id,
+                    "Clause {} was detected to be imported but comes from same thread",
+                    imported_clause_that_is_important
+                );
                 if critical_clause_roots
                     .entry(imported_from)
                     .or_default()
