@@ -96,7 +96,8 @@ fn main() -> Result<()> {
     // })?;
 
     // Walk dir for solver processes
-    let proof_files = find_proof_files(&args.proof_directory)?;
+    let mut proof_files = find_proof_files(&args.proof_directory)?;
+    proof_files.sort_unstable();
 
     log::info!("Parsing proof files");
     let mut result_data = ResultData::default();
