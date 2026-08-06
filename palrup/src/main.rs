@@ -98,6 +98,7 @@ fn main() -> Result<()> {
     // Walk dir for solver processes
     let proof_files = find_proof_files(&args.proof_directory)?;
 
+    log::info!("Parsing proof files");
     let mut result_data = ResultData::default();
     let start = Instant::now();
     let mut per_file_forward_info = Vec::with_capacity(proof_files.len());
@@ -108,9 +109,13 @@ fn main() -> Result<()> {
 
     // Coalesce results that we collected in parallel
     let mut id_of_unsat_clause = None;
+    let smallest_derived_id = per_file_forward_info
+        .first()
+        .and_then(|info| info.smallest_id)
+        .unwrap();
     for (index, file_forward_info) in per_file_forward_info.into_iter().enumerate() {
         if let Some(unsat_clause) = file_forward_info.id_of_unsat_clause {
-            // FIXME: It appears that sometimes multiple threads find the unsat clause at the same
+            // It appears that sometimes multiple threads find the unsat clause at the same
             // time. We only consider the last thread to find it.
             id_of_unsat_clause = Some(unsat_clause);
         }
@@ -123,7 +128,7 @@ fn main() -> Result<()> {
     // Build the reverse tree
     if let Some(id_of_unsat_clause) = id_of_unsat_clause {
         log::info!("Constructing reverse DAG...");
-        let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause);
+        let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause, smallest_derived_id);
         let mut reverse_dag_iterator = ReverseDAGIterator::new(&info, &proof_files);
 
         let mut covariance_set = CovarianceSet::default();
@@ -221,6 +226,7 @@ fn main() -> Result<()> {
 
 #[derive(Debug, Default, Serialize)]
 struct PerFileInfo {
+    smallest_id: Option<Id>,
     id_of_unsat_clause: Option<Id>,
     import_depths: [f32; TRACK_DERIVATIVES_UP_TO as usize],
 }
@@ -234,9 +240,13 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
 
     let mut id_of_unsat_clause = None;
     let mut step_count = 0;
+    let mut smallest_id = None;
     for entry in iterator {
         match entry.unwrap() {
             Step::Add(add) => {
+                if smallest_id.is_none() {
+                    smallest_id = Some(add.id);
+                }
                 walker.add_clause(&add);
                 if add.is_unsat_clause() {
                     id_of_unsat_clause = Some(add.id);
@@ -266,6 +276,7 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
     );
 
     PerFileInfo {
+        smallest_id,
         id_of_unsat_clause,
         import_depths: usage_stats
             .import_depth

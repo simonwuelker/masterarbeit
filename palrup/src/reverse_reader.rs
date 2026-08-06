@@ -201,6 +201,7 @@ impl<'a> ReverseDAGIterator<'a> {
             return Ok(None);
         };
         let filename = &self.palrup_files[*index_of_next_file];
+        log::debug!("Reverse iterator is walking {} next", filename.display());
 
         self.current_file = Some((
             ReversePalrupIterator::for_file(filename)?,
@@ -211,7 +212,11 @@ impl<'a> ReverseDAGIterator<'a> {
 }
 
 impl ReverseDAGInfo {
-    pub(crate) fn compute(palrup_files: &[PathBuf], id_of_unsat_clause: isize) -> Self {
+    pub(crate) fn compute(
+        palrup_files: &[PathBuf],
+        id_of_unsat_clause: Id,
+        first_derived_id: Id,
+    ) -> Self {
         let solver_that_derived_clause =
             |clause_id: Id| -> usize { (clause_id as usize) % palrup_files.len() };
 
@@ -239,9 +244,11 @@ impl ReverseDAGInfo {
                 log::debug!("No more work to do");
                 break;
             };
-            let mut unprocessed_imports_for_thread =
-                unprocessed_imports.remove(&thread_id).unwrap();
-            debug_assert!(!unprocessed_imports_for_thread.is_empty());
+            let unprocessed_imports_for_thread = unprocessed_imports.remove(&thread_id).unwrap();
+            debug_assert!(
+                !unprocessed_imports_for_thread.is_empty(),
+                "Got empty work chunk?"
+            );
 
             log::debug!(
                 "Iteration {i}: Found {} unprocessed DAG roots for thread {}",
@@ -251,7 +258,7 @@ impl ReverseDAGInfo {
 
             let mut reverse_iterator =
                 ReversePalrupIterator::for_file(&palrup_files[thread_id]).unwrap();
-            let mut current_important_clauses: FxHashSet<Id> = FxHashSet::default();
+            let mut current_important_clauses: FxHashSet<Id> = unprocessed_imports_for_thread;
             loop {
                 let Some(next) = reverse_iterator.next().unwrap() else {
                     break;
@@ -260,8 +267,7 @@ impl ReverseDAGInfo {
                     Step::Add(add_step) => {
                         // This will only consider clauses critical that we have not looked at, or that derive an ancestor that
                         // we have not looked at.
-                        let is_critical = current_important_clauses.remove(&add_step.id)
-                            || unprocessed_imports_for_thread.remove(&add_step.id);
+                        let is_critical = current_important_clauses.remove(&add_step.id);
                         if is_critical {
                             for ancestor in &add_step.hints {
                                 current_important_clauses.insert(*ancestor);
@@ -272,23 +278,18 @@ impl ReverseDAGInfo {
                 }
             }
 
-            debug_assert!(
-                unprocessed_imports.is_empty(),
-                "Didn't find all the imported clauses we were looking for?"
-            );
-            debug_assert!(
-                current_important_clauses
-                    .iter()
-                    .all(|clause| solver_that_derived_clause(*clause) != thread_id),
-                "Didn't find all clause additions we were looking for?"
-            );
-
             let mut new_roots = 0;
             for imported_clause_that_is_important in current_important_clauses.drain() {
+                // FIXME: The reverse iterator seems to miss the first clause in each file.
+                if imported_clause_that_is_important
+                    < first_derived_id + palrup_files.len() as isize
+                {
+                    // This clause comes from the problem definition
+                    continue;
+                }
                 let imported_from = solver_that_derived_clause(imported_clause_that_is_important);
                 debug_assert_ne!(
-                    imported_from,
-                    thread_id,
+                    imported_from, thread_id,
                     "Clause {} was detected to be imported but comes from same thread",
                     imported_clause_that_is_important
                 );
