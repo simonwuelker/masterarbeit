@@ -135,14 +135,21 @@ impl ClauseImport {
 }
 
 impl Step {
-    fn read<R>(mut reader: R) -> io::Result<Self>
+    fn read<R>(mut reader: R) -> Option<io::Result<Self>>
     where
         R: Read,
     {
         let mut buffer = [0];
-        reader.read_exact(&mut buffer)?;
+        if let Err(e) = reader.read_exact(&mut buffer) {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                // Thats okay, we've reached the end of the file.
+                return None;
+            } else {
+                return Some(Err(e));
+            }
+        }
 
-        match buffer[0] {
+        let step = match buffer[0] {
             b'a' => ClauseAddition::read(&mut reader).map(Self::Add),
             b'd' => ClauseDeletion::read(&mut reader).map(Self::Delete),
             b'i' => ClauseImport::read(&mut reader).map(Self::Import),
@@ -153,7 +160,11 @@ impl Step {
                     char::from_u32(other as u32)
                 )
             }
+        };
+        if let Err(e) = &step {
+            log::error!("Encountered error while parsing palrup file: {e:?}");
         }
+        Some(step)
     }
 }
 
@@ -181,9 +192,8 @@ impl<R: Read> Iterator for PalrupIterator<R> {
     type Item = Result<Step>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match Step::read(&mut self.reader) {
+        match Step::read(&mut self.reader)? {
             Ok(step) => Some(Ok(step)),
-            Err(error) if error.kind() == ErrorKind::UnexpectedEof => None,
             Err(other) => Some(Err(other.into())),
         }
     }
