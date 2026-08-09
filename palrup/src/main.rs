@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use env_logger::Env;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
-use std::io::{self, BufWriter};
+use std::collections::HashMap;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, iter};

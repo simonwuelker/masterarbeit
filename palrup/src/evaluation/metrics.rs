@@ -51,8 +51,7 @@ impl Default for CovarianceSet {
         Self {
             covariances: (0..NUMBER_OF_METRICS)
                 .map(|index| {
-                    vec![OnlineCovariance::default(); (NUMBER_OF_METRICS - index)]
-                        .into_boxed_slice()
+                    vec![OnlineCovariance::default(); NUMBER_OF_METRICS - index].into_boxed_slice()
                 })
                 .collect::<Vec<_>>()
                 .try_into()

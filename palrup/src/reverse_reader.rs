@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::mem;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Instant;
 use std::{
     io::{self, BufReader, Read, Seek, SeekFrom},
@@ -212,6 +213,10 @@ impl<'a> ReverseDAGIterator<'a> {
     }
 }
 
+fn solver_that_derived_clause(clause_id: Id, palrup_files: &[PathBuf]) -> usize {
+    (clause_id as usize) % palrup_files.len()
+}
+
 impl ReverseDAGInfo {
     pub(crate) fn compute(
         palrup_files: &[PathBuf],
@@ -219,22 +224,16 @@ impl ReverseDAGInfo {
         first_derived_id: Id,
     ) -> Self {
         let start = Instant::now();
-        let solver_that_derived_clause =
-            |clause_id: Id| -> usize { (clause_id as usize) % palrup_files.len() };
 
         // Contains all imports which extend the reverse DAG into another file AND that we have not looked at.
         // Maps from the solver ID to the list of such imports for that solver.
-        let mut unprocessed_imports: FxHashMap<usize, FxHashSet<Id>> = FxHashMap::default();
-        let solver_that_derived_unsat_clause = solver_that_derived_clause(id_of_unsat_clause);
+        let solver_that_derived_unsat_clause =
+            solver_that_derived_clause(id_of_unsat_clause, palrup_files);
         log::info!(
             "Starting from UNSAT clause {} derived by thread {}",
             id_of_unsat_clause,
             solver_that_derived_unsat_clause
         );
-        unprocessed_imports
-            .entry(solver_that_derived_unsat_clause)
-            .or_default()
-            .insert(id_of_unsat_clause as Id);
 
         // For each solver, contains all clause IDs that will later be imported by another solver thread, causing them
         // to contribute to solving the problem. In other words, these clauses are critical even if they are not used
@@ -244,28 +243,20 @@ impl ReverseDAGInfo {
             .entry(solver_that_derived_unsat_clause)
             .or_default()
             .insert(id_of_unsat_clause);
+        let critical_clause_roots = Mutex::new(critical_clause_roots);
 
-        for i in 0.. {
-            // Find next solver thread that still has work to do.
-            let Some(thread_id) = unprocessed_imports.keys().next().copied() else {
-                log::debug!("No more work to do");
-                break;
-            };
-            let unprocessed_imports_for_thread = unprocessed_imports.remove(&thread_id).unwrap();
-            debug_assert!(
-                !unprocessed_imports_for_thread.is_empty(),
-                "Got empty work chunk?"
-            );
-
-            log::debug!(
-                "Iteration {i}: Found {} unprocessed DAG roots for thread {}",
-                unprocessed_imports_for_thread.len(),
-                thread_id
-            );
-
+        fn walk_file_and_find_new_important_roots(
+            thread_id: usize,
+            current_task: FxHashSet<Id>,
+            palrup_files: &[PathBuf],
+            result: &Mutex<FxHashMap<usize, FxHashSet<Id>>>,
+            tasks: &Mutex<FxHashMap<usize, FxHashSet<Id>>>,
+            first_derived_id: Id,
+        ) {
+            debug_assert!(!current_task.is_empty(), "Got empty work chunk?");
             let mut reverse_iterator =
                 ReversePalrupIterator::for_file(&palrup_files[thread_id]).unwrap();
-            let mut current_important_clauses: FxHashSet<Id> = unprocessed_imports_for_thread;
+            let mut current_important_clauses: FxHashSet<Id> = current_task;
             loop {
                 let Some(next) = reverse_iterator.next().unwrap() else {
                     break;
@@ -286,6 +277,8 @@ impl ReverseDAGInfo {
             }
 
             let mut new_roots = 0;
+            let mut critical_clause_roots = result.lock().unwrap();
+            let mut unprocessed_imports = tasks.lock().unwrap();
             for imported_clause_that_is_important in current_important_clauses.drain() {
                 // FIXME: The reverse iterator seems to miss the first clause in each file.
                 if imported_clause_that_is_important
@@ -294,7 +287,8 @@ impl ReverseDAGInfo {
                     // This clause comes from the problem definition
                     continue;
                 }
-                let imported_from = solver_that_derived_clause(imported_clause_that_is_important);
+                let imported_from =
+                    solver_that_derived_clause(imported_clause_that_is_important, palrup_files);
                 debug_assert_ne!(
                     imported_from, thread_id,
                     "Clause {} was detected to be imported but comes from same thread",
@@ -319,18 +313,54 @@ impl ReverseDAGInfo {
             );
         }
 
-        log::info!(
-            "Reverse DAG has {} roots from {} different threads",
-            critical_clause_roots
-                .values()
-                .map(|clauses| clauses.len())
-                .sum::<usize>(),
-            critical_clause_roots.len()
+        let mut initial_important_clauses = FxHashSet::default();
+        initial_important_clauses.insert(id_of_unsat_clause);
+        let tasks = Default::default();
+
+        // First job happens serially, no point spawning a thread already.
+        log::info!("Initial pass...");
+        walk_file_and_find_new_important_roots(
+            solver_that_derived_unsat_clause,
+            initial_important_clauses,
+            palrup_files,
+            &critical_clause_roots,
+            &tasks,
+            first_derived_id,
         );
+        for i in 1.. {
+            let work_sets = mem::take(&mut *tasks.lock().unwrap());
+            if work_sets.is_empty() {
+                log::info!("Iteration {i}: No more work to do");
+                break;
+            }
+            log::info!(
+                "Iteration {i}: have {} unprocessed roots from {} threads",
+                work_sets.iter().map(|(_, set)| set.len()).sum::<usize>(),
+                work_sets.len()
+            );
+            rayon::scope(|scope| {
+                let critical_clause_roots = &critical_clause_roots;
+                let tasks = &tasks;
+                for (thread_id, work_set) in work_sets {
+                    scope.spawn(move |_| {
+                        walk_file_and_find_new_important_roots(
+                            thread_id,
+                            work_set,
+                            palrup_files,
+                            critical_clause_roots,
+                            tasks,
+                            first_derived_id,
+                        );
+                    });
+                }
+            });
+        }
+
         log::info!("Computing reverse DAG took {:?}", start.elapsed());
 
+        let mut critical_clause_roots = critical_clause_roots.lock().unwrap();
         Self {
-            important_roots: critical_clause_roots,
+            important_roots: mem::take(&mut *critical_clause_roots),
         }
     }
 }
