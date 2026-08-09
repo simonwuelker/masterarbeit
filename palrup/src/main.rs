@@ -275,7 +275,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
     let temp_dir = &temp_dir;
     log::debug!("Using {} to temporarily store proofs", temp_dir.display());
     if fs::exists(temp_dir).context("Checking if temp dir exists")? {
-        if fs::read_dir(temp_dir)?.next().is_none() {
+        if fs::read_dir(temp_dir)?.next().is_some() {
             log::error!(
                 "{} is not empty, refusing to put palrup proofs in there",
                 temp_dir.display()
