@@ -351,7 +351,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
             .context("Waiting for mallob to complete")?;
         fs::write(temp_dir.join("stdout"), &output.stdout).context("Log mallob stdout")?;
         fs::write(temp_dir.join("stderr"), &output.stdout).context("Log mallob stderr")?;
-        if output.status.success() {
+        if !output.status.success() {
             log::error!(
                 "Mallob invocation failed with exit code {:?}",
                 output.status.code()
@@ -374,12 +374,6 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
         log::debug!("Proof was stored in {}", proof_directory.display());
 
         let result = local_main(&proof_directory).context("Analyzing proof files")?;
-        log::info!("result:");
-        result
-            .covariance_set
-            .pearson_correlation()
-            .unwrap()
-            .debug_print();
         covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set);
 
         // Clear temporary directory
