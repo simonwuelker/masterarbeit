@@ -274,10 +274,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
         .unwrap_or_else(|| env::temp_dir().join("/palrup-proofs"));
     let temp_dir = &temp_dir;
     log::debug!("Using {} to temporarily store proofs", temp_dir.display());
-    if !fs::exists(temp_dir)? {
-        // Ensure temporary directory exists
-        fs::create_dir(temp_dir).context("Creating temporary directory")?;
-    } else {
+    if fs::exists(temp_dir).context("Checking if temp dir exists")? {
         if fs::read_dir(temp_dir)?.next().is_none() {
             log::error!(
                 "{} is not empty, refusing to put palrup proofs in there",
@@ -298,7 +295,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
         log::info!("Solving {}", problem.display());
 
         // Ensure temporary directory exists
-        if !fs::exists(temp_dir)? {
+        if !fs::exists(temp_dir).context("Checking if temp dir exists")? {
             fs::create_dir(temp_dir).context("Creating temporary directory")?;
         }
 
@@ -310,7 +307,8 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
                 "-np".to_string(),
                 num_procs.to_string(),
                 "--bind-to-core".to_string(),
-                "--map-by ppr:${NPROCS}:node:pe=4".to_string(),
+                "--map-by".to_string(),
+                format!("ppr:{num_procs}:node:pe=4"),
                 format!("{}", args.mallob_binary.display()),
                 "-t=4".to_string(),
                 format!("-mono={}", problem.display()),
