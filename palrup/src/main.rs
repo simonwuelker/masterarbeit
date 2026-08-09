@@ -55,6 +55,13 @@ struct ServerCommandArgs {
     /// Path to the mallob binary that should be used for solving problems.
     #[clap(long)]
     mallob_binary: PathBuf,
+
+    /// Path to a garbage directory that temporary proof files can be stored in.
+    ///
+    /// If this is not provided, then a appropriate directory will be inferred
+    /// (eg `/tmp/palrup-proofs` on linux).
+    #[clap(long)]
+    temp_directory: Option<PathBuf>,
 }
 
 fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBuf>> {
@@ -262,7 +269,9 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
         problem_files.push(entry.path());
     }
 
-    let temp_dir = env::temp_dir().join("/palrup-proofs");
+    let temp_dir = args
+        .temp_directory
+        .unwrap_or_else(|| env::temp_dir().join("/palrup-proofs"));
     let temp_dir = &temp_dir;
     log::debug!("Using {} to temporarily store proofs", temp_dir.display());
     if !fs::exists(temp_dir)? {
