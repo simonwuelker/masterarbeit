@@ -300,7 +300,8 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
         }
 
         // Run mallob on that problem
-        let child_handle = process::Command::new("mpirun")
+        let mut command = process::Command::new("mpirun".to_owned());
+        command
             .env("RDMAV_FORK_SAFE", "1")
             .env("NPROCS", num_procs.to_string())
             .args([
@@ -315,8 +316,9 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
                 "-satsolver=c".to_string(),
                 "--palrup".to_string(),
                 format!("-proof-dir={}", temp_dir.display()),
-            ])
-            .spawn()?;
+            ]);
+        log::debug!("Invoking {command:?}");
+        let child_handle = command.spawn()?;
 
         let output = child_handle
             .wait_with_output()
