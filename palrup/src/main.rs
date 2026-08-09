@@ -5,7 +5,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{self, Path, PathBuf};
 use std::process::ExitStatus;
 use std::time::Instant;
 use std::{env, io, process};
@@ -129,7 +129,15 @@ fn main() -> Result<()> {
             let outfile = fs::File::create(&result_path)?;
             serde_json::to_writer(outfile, &result.result_data)?;
         }
-        Commands::Server(server_args) => {
+        Commands::Server(mut server_args) => {
+            server_args.mallob_binary = path::absolute(server_args.mallob_binary)
+                .context("Absolutizing mallob binary path")?;
+            server_args.problem_directory = path::absolute(server_args.problem_directory)
+                .context("Absolutizing problem directory")?;
+            if let Some(temp_directory) = &mut server_args.temp_directory {
+                *temp_directory = path::absolute(temp_directory.clone())
+                    .context("Absolutizing temp directory")?;
+            }
             log::info!("Using server mode");
             server_main(server_args)?;
         }
@@ -307,7 +315,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
             .args([
                 "-np".to_string(),
                 num_procs.to_string(),
-                "--bind-to-core".to_string(),
+                "--bind-to=core".to_string(),
                 "--map-by".to_string(),
                 format!("ppr:{num_procs}:node:pe=4"),
                 format!("{}", args.mallob_binary.display()),
