@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::mem;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use std::{
     io::{self, BufReader, Read, Seek, SeekFrom},
     iter::Rev,
@@ -217,6 +218,7 @@ impl ReverseDAGInfo {
         id_of_unsat_clause: Id,
         first_derived_id: Id,
     ) -> Self {
+        let start = Instant::now();
         let solver_that_derived_clause =
             |clause_id: Id| -> usize { (clause_id as usize) % palrup_files.len() };
 
@@ -325,6 +327,7 @@ impl ReverseDAGInfo {
                 .sum::<usize>(),
             critical_clause_roots.len()
         );
+        log::info!("Computing reverse DAG took {:?}", start.elapsed());
 
         Self {
             important_roots: critical_clause_roots,
