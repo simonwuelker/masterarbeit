@@ -6,6 +6,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{self, Path, PathBuf};
+use std::process::Stdio;
 use std::time::Instant;
 use std::{env, fs, io, process};
 
@@ -340,13 +341,16 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
                 "-satsolver=c".to_string(),
                 "--palrup".to_string(),
                 format!("-proof-dir={}", temp_dir.display()),
-            ]);
+            ])
+            .stdout(Stdio::piped());
         log::debug!("Invoking {command:?}");
         let child_handle = command.spawn()?;
 
         let output = child_handle
             .wait_with_output()
             .context("Waiting for mallob to complete")?;
+        fs::write(temp_dir.join("stdout"), &output.stdout).context("Log mallob stdout")?;
+        fs::write(temp_dir.join("stderr"), &output.stdout).context("Log mallob stderr")?;
         if output.status.success() {
             log::error!(
                 "Mallob invocation failed with exit code {:?}",
@@ -379,6 +383,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
         covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set);
 
         // Clear temporary directory
+        log::debug!("Clearing temporary directory");
         fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
     }
 
