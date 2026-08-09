@@ -1,15 +1,15 @@
-use anyhow::Result;
-use clap::Parser;
+use anyhow::{anyhow, Context, Result};
+use clap::{Args, Parser, Subcommand};
 use env_logger::Env;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::io;
 use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
 use std::time::Instant;
+use std::{env, io, process};
 use std::{fs, iter};
-use tabled::{builder::Builder, settings::Style};
 
 // mod edgelist;
 mod evaluation;
@@ -19,6 +19,7 @@ mod walker;
 
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{metric_name_for, CovarianceSet, MetricSet, NUMBER_OF_METRICS};
+use crate::evaluation::online_covariance::OnlineCovariance;
 use crate::palrup::{Id, PalrupIterator, Step};
 use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
@@ -26,14 +27,34 @@ use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 /// Transpiler from PalRup proof files to edge lists
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
-struct Args {
+#[clap(propagate_version = true)]
+struct Arguments {
+    #[clap(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Local(LocalCommandArgs),
+    Server(ServerCommandArgs),
+}
+
+#[derive(Args, Debug)]
+struct LocalCommandArgs {
     /// Path to proof directory
     #[clap(short, long)]
     proof_directory: PathBuf,
+}
 
-    /// Path to write the output file to
-    #[clap(short, long, default_value = "out.edgelist")]
-    output_file: PathBuf,
+#[derive(Args, Debug)]
+struct ServerCommandArgs {
+    /// Path a directory containing problem instances.
+    #[clap(long)]
+    problem_directory: PathBuf,
+
+    /// Path to the mallob binary that should be used for solving problems.
+    #[clap(long)]
+    mallob_binary: PathBuf,
 }
 
 fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBuf>> {
@@ -87,16 +108,32 @@ struct ResultData {
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
 
-    let args = Args::parse();
-    // let out_file = fs::File::create(&args.output_file).with_context(|| {
-    //     format!(
-    //         "Failed to create output graph file {}",
-    //         args.output_file.display()
-    //     )
-    // })?;
+    let args = Arguments::parse();
 
+    match args.command {
+        Commands::Local(local_args) => {
+            log::info!("Using local mode");
+            let result = local_main(&local_args.proof_directory)?;
+
+            let result_path = "out.json";
+            if fs::exists(&result_path)? {
+                fs::remove_file(&result_path)?;
+            }
+            let outfile = fs::File::create(&result_path)?;
+            serde_json::to_writer(outfile, &result.result_data)?;
+        }
+        Commands::Server(server_args) => {
+            log::info!("Using server mode");
+            server_main(server_args)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
     // Walk dir for solver processes
-    let mut proof_files = find_proof_files(&args.proof_directory)?;
+    let mut proof_files = find_proof_files(proof_directory)?;
     proof_files.sort_unstable();
 
     log::info!("Parsing proof files");
@@ -127,100 +164,193 @@ fn main() -> Result<()> {
     log::debug!("Walking proof files took {:?}", start.elapsed());
 
     // Build the reverse tree
-    if let Some(id_of_unsat_clause) = id_of_unsat_clause {
-        log::info!("Constructing reverse DAG...");
-        let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause, smallest_derived_id);
-        let mut reverse_dag_iterator = ReverseDAGIterator::new(&info, &proof_files);
+    let Some(id_of_unsat_clause) = id_of_unsat_clause else {
+        log::error!("None of the proof files found a UNSAT clause");
+        return Err(anyhow!("No UNSAT clause found"));
+    };
 
-        let mut covariance_set = CovarianceSet::default();
-        let mut histogram_set = HistogramSet::default();
+    log::info!("Constructing reverse DAG...");
+    let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause, smallest_derived_id);
+    let mut reverse_dag_iterator = ReverseDAGIterator::new(&info, &proof_files);
 
-        let mut important_clauses = 0;
-        let mut total_clauses = 0;
-        let mut clause_gets_deleted_at = FxHashMap::default();
-        let mut last_id = Id::MAX;
-        while let Some(next) = reverse_dag_iterator.next()? {
-            match &next.step {
-                Step::Add(add_step) => {
-                    if next.is_critical {
-                        important_clauses += 1;
-                    }
+    let mut covariance_set = CovarianceSet::default();
+    let mut histogram_set = HistogramSet::default();
 
-                    last_id = add_step.id;
-                    total_clauses += 1;
-
-                    let lifetime = clause_gets_deleted_at
-                        .remove(&add_step.id)
-                        .unwrap_or(id_of_unsat_clause)
-                        - add_step.id;
-
-                    let metrics = MetricSet {
-                        is_critical: next.is_critical,
-                        number_of_literals: add_step.literals.len(),
-                        incoming_edges: add_step.hints.len(),
-                        outgoing_edges: next.outgoing_edges,
-                        id: add_step.id as usize,
-                        lifetime: lifetime as usize,
-                        minimum_lifetime: next.minimum_lifetime,
-                    };
-                    covariance_set.add_sample(metrics);
-                    histogram_set.add_sample(metrics);
+    let mut important_clauses = 0;
+    let mut total_clauses = 0;
+    let mut clause_gets_deleted_at = FxHashMap::default();
+    let mut last_id = Id::MAX;
+    while let Some(next) = reverse_dag_iterator.next()? {
+        match &next.step {
+            Step::Add(add_step) => {
+                if next.is_critical {
+                    important_clauses += 1;
                 }
-                Step::Delete(delete_step) => {
-                    for deleted_clause in &delete_step.deleted_clauses {
-                        clause_gets_deleted_at.insert(*deleted_clause, last_id);
-                    }
-                }
-                _ => {}
+
+                last_id = add_step.id;
+                total_clauses += 1;
+
+                let lifetime = clause_gets_deleted_at
+                    .remove(&add_step.id)
+                    .unwrap_or(id_of_unsat_clause)
+                    - add_step.id;
+
+                let metrics = MetricSet {
+                    is_critical: next.is_critical,
+                    number_of_literals: add_step.literals.len(),
+                    incoming_edges: add_step.hints.len(),
+                    outgoing_edges: next.outgoing_edges,
+                    id: add_step.id as usize,
+                    lifetime: lifetime as usize,
+                    minimum_lifetime: next.minimum_lifetime,
+                };
+                covariance_set.add_sample(metrics);
+                histogram_set.add_sample(metrics);
             }
-        }
-        result_data.histogram_set = Some(histogram_set);
-        log::info!(
-            "{:?}/{:?} clauses important",
-            important_clauses,
-            total_clauses
-        );
-
-        let sample_correlation = covariance_set.pearson_correlation().unwrap();
-        let mut table_builder =
-            Builder::with_capacity(NUMBER_OF_METRICS + 1, NUMBER_OF_METRICS + 1);
-        table_builder.push_record(
-            iter::once("Pearson").chain(
-                (0..NUMBER_OF_METRICS)
-                    .map(|index| metric_name_for(index))
-                    .collect::<Vec<_>>(),
-            ),
-        );
-        for row in 0..NUMBER_OF_METRICS {
-            let mut row_data = Vec::with_capacity(NUMBER_OF_METRICS + 1);
-            row_data.push(metric_name_for(row).to_string());
-            for column in 0..NUMBER_OF_METRICS {
-                if row > column {
-                    row_data.push("".to_string());
-                    continue;
+            Step::Delete(delete_step) => {
+                for deleted_clause in &delete_step.deleted_clauses {
+                    clause_gets_deleted_at.insert(*deleted_clause, last_id);
                 }
-
-                row_data.push(format!("{:.5}", sample_correlation[row][column - row]));
             }
-
-            table_builder.push_record(row_data);
+            _ => {}
         }
-
-        let mut table = table_builder.build();
-        table.with(Style::modern());
-        println!("{table}");
-    } else {
-        println!("None of the proof files found a UNSAT clause, skipping reverse treebuilding...");
     }
+    result_data.histogram_set = Some(histogram_set);
+    log::info!(
+        "{:?}/{:?} clauses important",
+        important_clauses,
+        total_clauses
+    );
+
+    covariance_set.pearson_correlation().unwrap().debug_print();
 
     result_data.unused_imports.sort_unstable();
 
-    let result_path = "out.json";
-    if fs::exists(&result_path)? {
-        fs::remove_file(&result_path)?;
+    Ok(SingleAnalysisResult {
+        covariance_set,
+        result_data,
+    })
+}
+
+struct SingleAnalysisResult {
+    covariance_set: CovarianceSet,
+    result_data: ResultData,
+}
+
+const NUM_PROBLEMS_TO_ANALYZE: usize = 10;
+
+fn server_main(args: ServerCommandArgs) -> Result<()> {
+    // Find all problem files
+    let mut problem_files = Vec::with_capacity(NUM_PROBLEMS_TO_ANALYZE);
+    for entry in fs::read_dir(&args.problem_directory)
+        .with_context(|| {
+            format!(
+                "Reading problem directory ({})",
+                args.problem_directory.display()
+            )
+        })?
+        .take(NUM_PROBLEMS_TO_ANALYZE)
+    {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            log::warn!(
+                "Expected no directories in {}",
+                args.problem_directory.display()
+            );
+            continue;
+        }
+        problem_files.push(entry.path());
     }
-    let outfile = fs::File::create(&result_path)?;
-    serde_json::to_writer(outfile, &result_data)?;
+
+    let temp_dir = env::temp_dir().join("/palrup-proofs");
+    let temp_dir = &temp_dir;
+    log::debug!("Using {} to temporarily store proofs", temp_dir.display());
+    if !fs::exists(temp_dir)? {
+        // Ensure temporary directory exists
+        fs::create_dir(temp_dir).context("Creating temporary directory")?;
+    } else {
+        if fs::read_dir(temp_dir)?.next().is_none() {
+            log::error!(
+                "{} is not empty, refusing to put palrup proofs in there",
+                temp_dir.display()
+            );
+            return Err(anyhow!(
+                "{} is not empty, refusing to put palrup proofs in there",
+                temp_dir.display()
+            ));
+        }
+    }
+
+    let num_threads = std::thread::available_parallelism()?.get();
+    let num_procs = num_threads / 8;
+    let mut covariance_set = CovarianceSet::default();
+    log::debug!("Using {num_threads} mallob solver threads");
+    for problem in &problem_files {
+        log::info!("Solving {}", problem.display());
+
+        // Ensure temporary directory exists
+        if !fs::exists(temp_dir)? {
+            fs::create_dir(temp_dir).context("Creating temporary directory")?;
+        }
+
+        // Run mallob on that problem
+        let child_handle = process::Command::new("mpirun")
+            .env("RDMAV_FORK_SAFE", "1")
+            .env("NPROCS", num_procs.to_string())
+            .args([
+                "-np".to_string(),
+                num_procs.to_string(),
+                "--bind-to-core".to_string(),
+                "--map-by ppr:${NPROCS}:node:pe=4".to_string(),
+                format!("{}", args.mallob_binary.display()),
+                "-t=4".to_string(),
+                format!("-mono={}", problem.display()),
+                "-satsolver=c".to_string(),
+                "--palrup".to_string(),
+                format!("-proof-dir={}", temp_dir.display()),
+            ])
+            .spawn()?;
+
+        let output = child_handle
+            .wait_with_output()
+            .context("Waiting for mallob to complete")?;
+        if output.status.success() {
+            log::error!(
+                "Mallob invocation failed with exit code {:?}",
+                output.status.code()
+            );
+            return Err(anyhow!("Mallob invocation failed"));
+        }
+
+        // Find the directory containing the solver traces (no idea how mallob determines that)
+        let mut proof_directory = None;
+        for entry in fs::read_dir(temp_dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                proof_directory = Some(entry.path());
+            }
+        }
+        let Some(proof_directory) = proof_directory else {
+            log::error!("Did not find any proof files");
+            return Err(anyhow!("Did not find any proof files"));
+        };
+        log::debug!("Proof was stored in {}", proof_directory.display());
+
+        let result = local_main(&proof_directory).context("Analyzing proof files")?;
+        log::info!("result:");
+        result
+            .covariance_set
+            .pearson_correlation()
+            .unwrap()
+            .debug_print();
+        covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set);
+
+        // Clear temporary directory
+        fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
+    }
+
+    log::info!("Pearson correlation over all files:");
+    covariance_set.pearson_correlation().unwrap().debug_print();
 
     Ok(())
 }

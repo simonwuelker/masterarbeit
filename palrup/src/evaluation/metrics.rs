@@ -1,4 +1,8 @@
+use tabled::{builder::Builder, settings::Style};
+
 use super::online_covariance::OnlineCovariance;
+
+use std::iter;
 
 pub(crate) const NUMBER_OF_METRICS: usize = 7;
 
@@ -102,7 +106,7 @@ impl CovarianceSet {
             .map(|values| values.try_into().unwrap())
     }
 
-    pub(crate) fn pearson_correlation(&self) -> Option<[Box<[f64]>; NUMBER_OF_METRICS]> {
+    pub(crate) fn pearson_correlation(&self) -> Option<PearsonCorrelation> {
         (0..NUMBER_OF_METRICS)
             .map(|i| {
                 (i..NUMBER_OF_METRICS)
@@ -111,5 +115,63 @@ impl CovarianceSet {
             })
             .collect::<Option<Vec<_>>>()
             .map(|values| values.try_into().unwrap())
+            .map(|values| PearsonCorrelation { values })
+    }
+
+    pub(crate) fn combine(first: Self, second: Self) -> Self {
+        Self {
+            covariances: first
+                .covariances
+                .iter()
+                .zip(second.covariances.iter())
+                .map(|(first_row, second_row)| {
+                    first_row
+                        .iter()
+                        .zip(second_row.iter())
+                        .map(|(first_value, second_value)| {
+                            OnlineCovariance::combine(*first_value, *second_value)
+                        })
+                        .collect::<Box<[OnlineCovariance]>>()
+                })
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        }
+    }
+}
+
+pub(crate) struct PearsonCorrelation {
+    values: [Box<[f64]>; NUMBER_OF_METRICS],
+}
+
+impl PearsonCorrelation {
+    pub(crate) fn debug_print(&self) {
+        let mut table_builder =
+            Builder::with_capacity(NUMBER_OF_METRICS + 1, NUMBER_OF_METRICS + 1);
+        table_builder.push_record(
+            iter::once("Pearson").chain(
+                (0..NUMBER_OF_METRICS)
+                    .map(|index| metric_name_for(index))
+                    .collect::<Vec<_>>(),
+            ),
+        );
+        for row in 0..NUMBER_OF_METRICS {
+            let mut row_data = Vec::with_capacity(NUMBER_OF_METRICS + 1);
+            row_data.push(metric_name_for(row).to_string());
+            for column in 0..NUMBER_OF_METRICS {
+                if row > column {
+                    row_data.push("".to_string());
+                    continue;
+                }
+
+                row_data.push(format!("{:.5}", self.values[row][column - row]));
+            }
+
+            table_builder.push_record(row_data);
+        }
+
+        let mut table = table_builder.build();
+        table.with(Style::modern());
+        println!("{table}");
     }
 }

@@ -5,6 +5,6 @@ graphvise.txt
 graphvise_coloring.txt
 out.json
 *.svg
-track_main_2025.uri
+*.uri
 instances
 database.db
