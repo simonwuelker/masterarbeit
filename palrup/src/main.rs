@@ -6,20 +6,16 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{self, Path, PathBuf};
-use std::process::ExitStatus;
 use std::time::Instant;
-use std::{env, io, process};
-use std::{fs, iter};
+use std::{env, fs, io, process};
 
-// mod edgelist;
 mod evaluation;
 mod palrup;
 mod reverse_reader;
 mod walker;
 
 use crate::evaluation::histograms::HistogramSet;
-use crate::evaluation::metrics::{metric_name_for, CovarianceSet, MetricSet, NUMBER_OF_METRICS};
-use crate::evaluation::online_covariance::OnlineCovariance;
+use crate::evaluation::metrics::{CovarianceSet, MetricSet};
 use crate::palrup::{Id, PalrupIterator, Step};
 use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
@@ -52,9 +48,15 @@ struct ServerCommandArgs {
     #[clap(long)]
     problem_directory: PathBuf,
 
-    /// Path to the mallob binary that should be used for solving problems.
     #[clap(long)]
-    mallob_binary: PathBuf,
+    mallob: PathBuf,
+
+    /// Path to the mallob binary that should be used for solving problems.
+    ///
+    /// If this is not provided then `build/mallob` from the `mallob`
+    /// directory will be used.
+    #[clap(long)]
+    mallob_binary: Option<PathBuf>,
 
     /// Path to a garbage directory that temporary proof files can be stored in.
     ///
@@ -130,16 +132,27 @@ fn main() -> Result<()> {
             serde_json::to_writer(outfile, &result.result_data)?;
         }
         Commands::Server(mut server_args) => {
-            server_args.mallob_binary = path::absolute(server_args.mallob_binary)
-                .context("Absolutizing mallob binary path")?;
+            log::info!("Using server mode");
+            server_args.mallob =
+                path::absolute(server_args.mallob).context("Absolutizing mallob path")?;
+
             server_args.problem_directory = path::absolute(server_args.problem_directory)
                 .context("Absolutizing problem directory")?;
             if let Some(temp_directory) = &mut server_args.temp_directory {
                 *temp_directory = path::absolute(temp_directory.clone())
                     .context("Absolutizing temp directory")?;
             }
-            log::info!("Using server mode");
+            if let Some(mallob_binary) = &mut server_args.mallob_binary {
+                *mallob_binary = path::absolute(mallob_binary.clone())
+                    .context("Absolutizing mallob binary path")?;
+            }
+
+            // FIXME: Mallob seems to want us to be in its directory when we invoke it.
+            // Thats silly.
+            let old_directory = env::current_dir()?;
+            env::set_current_dir(&server_args.mallob)?;
             server_main(server_args)?;
+            env::set_current_dir(old_directory)?;
         }
     }
 
@@ -297,6 +310,9 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
 
     let num_threads = std::thread::available_parallelism()?.get();
     let num_procs = num_threads / 8;
+    let mallob_binary = args
+        .mallob_binary
+        .unwrap_or_else(|| args.mallob.join("build/mallob"));
     let mut covariance_set = CovarianceSet::default();
     log::debug!("Using {num_threads} mallob solver threads");
     for problem in &problem_files {
@@ -318,7 +334,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
                 "--bind-to=core".to_string(),
                 "--map-by".to_string(),
                 format!("ppr:{num_procs}:node:pe=4"),
-                format!("{}", args.mallob_binary.display()),
+                format!("{}", mallob_binary.display()),
                 "-t=4".to_string(),
                 format!("-mono={}", problem.display()),
                 "-satsolver=c".to_string(),
