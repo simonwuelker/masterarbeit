@@ -162,7 +162,11 @@ impl Step {
             }
         };
         if let Err(e) = &step {
-            log::error!("Encountered error while parsing palrup file: {e:?}");
+            log::error!("Encountered error while parsing: {e:?}");
+            if e.kind() == ErrorKind::UnexpectedEof {
+                log::warn!("FIXME: Ignoring garbage data near EOF");
+                return None;
+            }
         }
         Some(step)
     }
