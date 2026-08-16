@@ -30,13 +30,14 @@ pub struct Histogram {
 }
 
 impl Histogram {
-    fn new(bucket_size: usize) -> Self {
+    pub(crate) fn new(bucket_size: usize) -> Self {
         Self {
             bucket_size,
             buckets: Default::default(),
         }
     }
-    fn add_sample(&mut self, value: usize) {
+
+    pub(crate) fn add_sample(&mut self, value: usize) {
         let bucket = value / self.bucket_size;
         *self.buckets.entry(bucket).or_default() += 1;
     }

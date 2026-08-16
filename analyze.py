@@ -154,8 +154,38 @@ def plot_histograms(data):
 
     plt.savefig("histograms.svg")
 
-plot_import_generations(data)
-plot_unused_imports_per_generation(data)
-plot_histograms(data)
+def plot_single_2d_histogram(ax, title, histogram_data):
+    ax.set_title(title + " size " + str(histogram_data["bucket_size"]))
+
+    buckets = histogram_data["buckets"]
+    x_axis_keys = [int(x) for x in buckets.keys()]
+    min_y = 2**32
+    max_y = 0
+    for row in buckets.values():
+        min_y = min(min_y, min([int(x) for x in row["buckets"].keys()]))
+        max_y = max(max_y, max([int(x) for x in row["buckets"].keys()]))
+    print("range", min_y, max_y)
+    rows = []
+    for i in range(min(x_axis_keys), max(x_axis_keys) + 1):
+        row_data = buckets[str(i)]["buckets"]
+        row_data = [row_data.get(str(y), 0.0) for y in range(min_y, max_y)]
+        rows.append(row_data)
+
+    img = np.array(rows)
+    im = ax.imshow(img.transpose())
+
+def plot_2d_histograms(data):
+    histogram_set = data["histogram_2d_set"]
+
+    fig, axs = plt.subplots(1, 1, constrained_layout = True)
+
+    plot_single_2d_histogram(axs, "Number of literals over clause id", histogram_set["number_of_literals_over_clause_id"])
+
+    plt.savefig("2d_histograms.svg")
+
+# plot_import_generations(data)
+# plot_unused_imports_per_generation(data)
+# plot_histograms(data)
+plot_2d_histograms(data)
 if args.show_plots:
     plt.show()

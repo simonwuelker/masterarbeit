@@ -15,6 +15,7 @@ mod palrup;
 mod reverse_reader;
 mod walker;
 
+use crate::evaluation::histogram_2d::{Histogram2D, Histogram2DSet};
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{CovarianceSet, MetricSet};
 use crate::palrup::{Id, PalrupIterator, Step};
@@ -130,7 +131,7 @@ fn main() -> Result<()> {
                 fs::remove_file(&result_path)?;
             }
             let outfile = fs::File::create(&result_path)?;
-            serde_json::to_writer(outfile, &result.result_data)?;
+            serde_json::to_writer(outfile, &result)?;
         }
         Commands::Server(mut server_args) => {
             log::info!("Using server mode");
@@ -152,8 +153,15 @@ fn main() -> Result<()> {
             // Thats silly.
             let old_directory = env::current_dir()?;
             env::set_current_dir(&server_args.mallob)?;
-            server_main(server_args)?;
+            let result = server_main(server_args)?;
             env::set_current_dir(old_directory)?;
+
+            let result_path = "out.json";
+            if fs::exists(&result_path)? {
+                fs::remove_file(&result_path)?;
+            }
+            let outfile = fs::File::create(&result_path)?;
+            serde_json::to_writer(outfile, &result)?;
         }
     }
 
@@ -204,6 +212,7 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
 
     let mut covariance_set = CovarianceSet::default();
     let mut histogram_set = HistogramSet::default();
+    let mut histogram_2d_set = Histogram2DSet::default();
 
     let mut important_clauses = 0;
     let mut total_clauses = 0;
@@ -235,6 +244,7 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
                 };
                 covariance_set.add_sample(metrics);
                 histogram_set.add_sample(metrics);
+                histogram_2d_set.add_sample(metrics);
             }
             Step::Delete(delete_step) => {
                 for deleted_clause in &delete_step.deleted_clauses {
@@ -258,17 +268,26 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
     Ok(SingleAnalysisResult {
         covariance_set,
         result_data,
+        histogram_2d_set,
     })
 }
 
+#[derive(Serialize)]
 struct SingleAnalysisResult {
+    #[serde(skip)]
     covariance_set: CovarianceSet,
     result_data: ResultData,
+    histogram_2d_set: Histogram2DSet,
 }
 
 const NUM_PROBLEMS_TO_ANALYZE: usize = 10;
 
-fn server_main(args: ServerCommandArgs) -> Result<()> {
+#[derive(Debug, Serialize)]
+struct MultiAnalysisResult {
+    histogram_sets: Vec<Histogram2DSet>,
+}
+
+fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
     // Find all problem files
     let mut problem_files = Vec::with_capacity(NUM_PROBLEMS_TO_ANALYZE);
     for entry in fs::read_dir(&args.problem_directory)
@@ -315,6 +334,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
         .mallob_binary
         .unwrap_or_else(|| args.mallob.join("build/mallob"));
     let mut covariance_set = CovarianceSet::default();
+    let mut histogram_sets: Vec<Histogram2DSet> = Default::default();
     log::debug!("Using {num_threads} mallob solver threads");
     for problem in &problem_files {
         log::info!("Solving {}", problem.display());
@@ -375,6 +395,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
 
         let result = local_main(&proof_directory).context("Analyzing proof files")?;
         covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set);
+        histogram_sets.push(result.histogram_2d_set);
 
         // Clear temporary directory
         log::debug!("Clearing temporary directory");
@@ -384,7 +405,7 @@ fn server_main(args: ServerCommandArgs) -> Result<()> {
     log::info!("Pearson correlation over all files:");
     covariance_set.pearson_correlation().unwrap().debug_print();
 
-    Ok(())
+    Ok(MultiAnalysisResult { histogram_sets })
 }
 
 #[derive(Debug, Default, Serialize)]
