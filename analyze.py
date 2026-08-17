@@ -159,27 +159,34 @@ def plot_single_2d_histogram(ax, title, histogram_data):
 
     buckets = histogram_data["buckets"]
     x_axis_keys = [int(x) for x in buckets.keys()]
+
     min_y = 2**32
     max_y = 0
     for row in buckets.values():
         min_y = min(min_y, min([int(x) for x in row["buckets"].keys()]))
         max_y = max(max_y, max([int(x) for x in row["buckets"].keys()]))
-    print("range", min_y, max_y)
+
+    if max_y > 1024:
+        max_y = 1024 # FIXME: Support extreme out-of-range values
     rows = []
     for i in range(min(x_axis_keys), max(x_axis_keys) + 1):
         row_data = buckets[str(i)]["buckets"]
-        row_data = [row_data.get(str(y), 0.0) for y in range(min_y, max_y)]
+        # row_sum = sum(row_data.values())
+        row_sum = 1.0
+        row_data = [float(row_data.get(str(y), 0.0) / row_sum) for y in range(min_y, max_y)]
         rows.append(row_data)
 
     img = np.array(rows)
-    im = ax.imshow(img.transpose())
+    ax.imshow(img.transpose())
 
 def plot_2d_histograms(data):
     histogram_set = data["histogram_2d_set"]
 
-    fig, axs = plt.subplots(1, 1, constrained_layout = True)
+    fig, axs = plt.subplots(2, 2, constrained_layout = True)
 
-    plot_single_2d_histogram(axs, "Number of literals over clause id", histogram_set["number_of_literals_over_clause_id"])
+    plot_single_2d_histogram(axs[0, 0], "Number of literals over clause id", histogram_set["number_of_literals_over_clause_id"])
+    plot_single_2d_histogram(axs[1, 0], "Lifetime over clause id", histogram_set["lifetime_over_clause_id"])
+    plot_single_2d_histogram(axs[0, 1], "Minimum Lifetime over clause id", histogram_set["minimum_lifetime_over_clause_id"])
 
     plt.savefig("2d_histograms.svg")
 
