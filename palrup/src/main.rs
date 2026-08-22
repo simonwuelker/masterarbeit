@@ -252,12 +252,7 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
                     lifetime: lifetime as usize,
                     minimum_lifetime: next.minimum_lifetime,
                 };
-                if metrics.outgoing_edges > 1024 {
-                    println!(
-                        "{} has a lot of outgoing edges: {:?}",
-                        metrics.id, metrics.outgoing_edges
-                    );
-                }
+
                 covariance_set.add_sample(metrics);
                 histogram_set.add_sample(metrics);
                 histogram_2d_set.add_sample(metrics);
@@ -444,6 +439,7 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
     let mut id_of_unsat_clause = None;
     let mut step_count = 0;
     let mut smallest_id = None;
+    let mut last_id = None;
     for entry in iterator {
         match entry.unwrap() {
             Step::Add(add) => {
@@ -457,13 +453,18 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
                 for derived_from in add.hints {
                     unused_imports.remove(&derived_from);
                 }
+                last_id = Some(add.id);
             }
             Step::Import(import) => {
                 unused_imports.insert(import.imported_clause);
 
+                if let Some(last_id) = last_id.take() {
+                    println!("Found Communication step at {last_id:?}");
+                }
                 walker.import_clause(import);
             }
             Step::Delete(deletion) => {
+                last_id = None;
                 for clause in deletion.deleted_clauses {
                     walker.forget_clause(clause);
                 }

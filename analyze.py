@@ -2,6 +2,7 @@
 
 import matplotlib.pyplot as plt
 import argparse
+import numpy as np
 
 parser = argparse.ArgumentParser(prog="PalRup analyzer",
                     description="analyzes the output from the corresponding rust program",
@@ -236,6 +237,11 @@ def plot_important_clauses_over_time(data):
     plt.plot(importance_data.keys(), y_values)
     plt.savefig("importance_over_time.svg")
 
+# https://stackoverflow.com/questions/13728392/moving-average-or-running-mean
+def running_mean(x, N):
+    cumsum = np.cumsum(np.insert(x, 0, 0))
+    return (cumsum[N:] - cumsum[:-N]) / float(N)
+
 def plot_share_of_important_clauses_per_thread_over_time(data):
     data  = data["critical_clauses_per_thread_over_time"]
     n_threads = len(data)
@@ -268,13 +274,22 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
 
     y_axis_values = {thread_id: [data[thread_id][i] / sums[i] for i in range(len(data[thread_id]))] for thread_id in range(n_threads)}
 
-    fig, ax = plt.subplots()
-    ax.stackplot(x_axis_values, y_axis_values.values(),
+    fig, axs = plt.subplots(2)
+    axs[0].stackplot(x_axis_values, y_axis_values.values(),
                 labels=y_axis_values.keys(), alpha=0.8)
-    ax.legend(loc='upper left', reverse=True)
-    ax.set_title('Share of important clauses per thread over time')
-    ax.set_xlabel('Clause ID')
-    ax.set_ylabel('% of important clauses contributed by this thread')
+    axs[0].legend(loc='upper left', reverse=True)
+    axs[0].set_title('Share of total important clauses per thread over time')
+    axs[0].set_xlabel('Clause ID')
+    axs[0].set_ylabel('% of important clauses contributed by this thread')
+
+    N = 16
+    axs[1].set_title(f'Absolute number of important clauses over buckets (Avg over last {N})')
+    sums = sums[:-1]
+    sums = [sums[0]] * (N - 1) + sums
+    axs[1].plot(x_axis_values, running_mean(np.array(sums), N))
+    axs[1].set_xlabel('Clause ID')
+    axs[1].set_ylabel('# Important clauses')
+    plt.tight_layout()
     plt.savefig("share_of_important_clauses_over_time.svg")
 
 # plot_import_generations(data)
