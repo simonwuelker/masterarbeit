@@ -242,6 +242,9 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
                     lifetime: lifetime as usize,
                     minimum_lifetime: next.minimum_lifetime,
                 };
+                if metrics.outgoing_edges > 1024 {
+                    println!("{} has a lot of outgoing edges: {:?}", metrics.id, metrics.outgoing_edges);
+                }
                 covariance_set.add_sample(metrics);
                 histogram_set.add_sample(metrics);
                 histogram_2d_set.add_sample(metrics);

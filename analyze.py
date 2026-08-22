@@ -154,14 +154,26 @@ def plot_histograms(data):
 
     plt.savefig("histograms.svg")
 
-def plot_single_2d_histogram(ax, title, histogram_data):
-    ax.set_title(title + " size " + str(histogram_data["bucket_size"]))
+def plot_single_2d_histogram(ax, title, histogram_data, x_label, y_label):
+    ax.set_title(title)
+    ax.set_ylabel(y_label)
+    ax.set_xlabel(x_label)
+
+    # Setup appropriate formatters for x/y axis
+    def x_axis_formatter(x, pos):
+        return str(int(x*int(histogram_data["bucket_size"])))
+    ax.xaxis.set_major_formatter(x_axis_formatter)
+
+    def y_axis_formatter(x, pos):
+        return str(int(x*int(histogram_data["inner_size"])))
+    ax.yaxis.set_major_formatter(y_axis_formatter)
 
     buckets = histogram_data["buckets"]
     x_axis_keys = [int(x) for x in buckets.keys()]
 
     min_y = 2**32
     max_y = 0
+
     for row in buckets.values():
         min_y = min(min_y, min([int(x) for x in row["buckets"].keys()]))
         max_y = max(max_y, max([int(x) for x in row["buckets"].keys()]))
@@ -173,7 +185,7 @@ def plot_single_2d_histogram(ax, title, histogram_data):
         row_data = buckets[str(i)]["buckets"]
         # row_sum = sum(row_data.values())
         row_sum = 1.0
-        row_data = [float(row_data.get(str(y), 0.0) / row_sum) for y in range(min_y, max_y)]
+        row_data = [float(row_data.get(str(y), 0.0)) * 1000.0 for y in range(min_y, max_y)]
         rows.append(row_data)
 
     img = np.array(rows)
@@ -184,15 +196,50 @@ def plot_2d_histograms(data):
 
     fig, axs = plt.subplots(2, 2, constrained_layout = True)
 
-    plot_single_2d_histogram(axs[0, 0], "Number of literals over clause id", histogram_set["number_of_literals_over_clause_id"])
-    plot_single_2d_histogram(axs[1, 0], "Lifetime over clause id", histogram_set["lifetime_over_clause_id"])
-    plot_single_2d_histogram(axs[0, 1], "Minimum Lifetime over clause id", histogram_set["minimum_lifetime_over_clause_id"])
+    plot_single_2d_histogram(
+        axs[0, 0],
+        "Number of literals over clause id",
+        histogram_set["number_of_literals_over_clause_id"],
+        "Clause ID",
+        "#Literals"
+    )
+    plot_single_2d_histogram(
+        axs[1, 0],
+        "Lifetime over clause id",
+        histogram_set["lifetime_over_clause_id"],
+        "Clause ID",
+        "Lifetime (in Clause IDs)"
+    )
+    plot_single_2d_histogram(
+        axs[0, 1],
+        "Minimum Lifetime over clause id",
+        histogram_set["minimum_lifetime_over_clause_id"],
+        "Clause ID",
+        "Minimum Lifetime (in Clause IDs)"
+    )
+    plot_single_2d_histogram(
+        axs[1, 1],
+        "Minimum Lifetime over number of literals",
+        histogram_set["minimum_lifetime_over_number_of_literals"],
+        "# Literals",
+        "Minimum Lifetime (in Clause IDs)"
+    )
 
     plt.savefig("2d_histograms.svg")
+
+def plot_important_clauses_over_time(data):
+    importance_data = data["histogram_2d_set"]["importance_over_clause_id"]["buckets"]
+
+    plt.title("Share of important clauses over time")
+    print(importance_data)
+    y_values = [histogram["buckets"].get("1") for histogram in importance_data.values()]
+    plt.plot(importance_data.keys(), y_values)
+    plt.savefig("importance_over_time.svg")
 
 # plot_import_generations(data)
 # plot_unused_imports_per_generation(data)
 # plot_histograms(data)
-plot_2d_histograms(data)
+# plot_2d_histograms(data)
+plot_important_clauses_over_time(data)
 if args.show_plots:
     plt.show()
