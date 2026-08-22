@@ -218,11 +218,21 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
     let mut total_clauses = 0;
     let mut clause_gets_deleted_at = FxHashMap::default();
     let mut last_id = Id::MAX;
+    let mut critical_clauses_per_thread_over_time: Vec<_> =
+        (0..proof_files.len()).map(|i| Vec::default()).collect();
     while let Some(next) = reverse_dag_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
                 if next.is_critical {
                     important_clauses += 1;
+
+                    let thread_id = add_step.id as usize % proof_files.len();
+                    let index =
+                        add_step.id as usize / CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY;
+                    if critical_clauses_per_thread_over_time[thread_id].len() <= index {
+                        critical_clauses_per_thread_over_time[thread_id].resize(index + 1, 0);
+                    }
+                    critical_clauses_per_thread_over_time[thread_id][index] += 1;
                 }
 
                 last_id = add_step.id;
@@ -243,7 +253,10 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
                     minimum_lifetime: next.minimum_lifetime,
                 };
                 if metrics.outgoing_edges > 1024 {
-                    println!("{} has a lot of outgoing edges: {:?}", metrics.id, metrics.outgoing_edges);
+                    println!(
+                        "{} has a lot of outgoing edges: {:?}",
+                        metrics.id, metrics.outgoing_edges
+                    );
                 }
                 covariance_set.add_sample(metrics);
                 histogram_set.add_sample(metrics);
@@ -272,6 +285,7 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
         covariance_set,
         result_data,
         histogram_2d_set,
+        critical_clauses_per_thread_over_time,
     })
 }
 
@@ -281,8 +295,10 @@ struct SingleAnalysisResult {
     covariance_set: CovarianceSet,
     result_data: ResultData,
     histogram_2d_set: Histogram2DSet,
+    critical_clauses_per_thread_over_time: Vec<Vec<usize>>,
 }
 
+const CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY: usize = 1024;
 const NUM_PROBLEMS_TO_ANALYZE: usize = 10;
 
 #[derive(Debug, Serialize)]

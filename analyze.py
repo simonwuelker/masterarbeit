@@ -236,10 +236,52 @@ def plot_important_clauses_over_time(data):
     plt.plot(importance_data.keys(), y_values)
     plt.savefig("importance_over_time.svg")
 
+def plot_share_of_important_clauses_per_thread_over_time(data):
+    data  = data["critical_clauses_per_thread_over_time"]
+    n_threads = len(data)
+
+
+    longest_sequence = max(len(data[thread_id]) for thread_id in range(n_threads))
+    x_axis_values = [1024 * i for i in range(longest_sequence)]
+
+    for thread_data in data:
+        thread_data += [0] * (longest_sequence - len(thread_data))
+        assert len(thread_data) == longest_sequence
+
+    # Compute sum per bucket
+    sums = []
+    i = 0
+    while True:
+        sum = 0
+        one_thread_contributed = False
+        for thread_id in range(n_threads):
+            if len(data[thread_id]) > i:
+                sum += data[thread_id][i]
+                one_thread_contributed = True
+        if sum == 0:
+            sum = 1 # just avoids a division by zero
+        sums.append(sum)
+        i += 1
+        if not one_thread_contributed:
+            break
+
+
+    y_axis_values = {thread_id: [data[thread_id][i] / sums[i] for i in range(len(data[thread_id]))] for thread_id in range(n_threads)}
+
+    fig, ax = plt.subplots()
+    ax.stackplot(x_axis_values, y_axis_values.values(),
+                labels=y_axis_values.keys(), alpha=0.8)
+    ax.legend(loc='upper left', reverse=True)
+    ax.set_title('Share of important clauses per thread over time')
+    ax.set_xlabel('Clause ID')
+    ax.set_ylabel('% of important clauses contributed by this thread')
+    plt.savefig("share_of_important_clauses_over_time.svg")
+
 # plot_import_generations(data)
 # plot_unused_imports_per_generation(data)
 # plot_histograms(data)
 # plot_2d_histograms(data)
-plot_important_clauses_over_time(data)
-if args.show_plots:
-    plt.show()
+# plot_important_clauses_over_time(data)
+plot_share_of_important_clauses_per_thread_over_time(data)
+# if args.show_plots:
+#     plt.show()

@@ -44,7 +44,7 @@ impl Default for Histogram2DSet {
             lifetime_over_clause_id: Histogram2D::new(1024, 512),
             minimum_lifetime_over_clause_id: Histogram2D::new(1024, 512),
             minimum_lifetime_over_number_of_literals: Histogram2D::new(1, 4096 * 2),
-            importance_over_clause_id: Histogram2D::new(32000, 1)
+            importance_over_clause_id: Histogram2D::new(32000, 1),
         }
     }
 }
@@ -56,7 +56,9 @@ impl Histogram2DSet {
             .add_sample(metrics.id, metrics.lifetime);
         self.minimum_lifetime_over_clause_id
             .add_sample(metrics.id, metrics.minimum_lifetime);
-        self.minimum_lifetime_over_number_of_literals.add_sample(metrics.number_of_literals, metrics.minimum_lifetime);
-        self.importance_over_clause_id.add_sample(metrics.id, metrics.is_critical as usize);
+        self.minimum_lifetime_over_number_of_literals
+            .add_sample(metrics.number_of_literals, metrics.minimum_lifetime);
+        self.importance_over_clause_id
+            .add_sample(metrics.id, metrics.is_critical as usize);
     }
 }
