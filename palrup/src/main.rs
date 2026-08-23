@@ -197,6 +197,9 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
     proof_files.sort_unstable();
 
     log::info!("Parsing proof files");
+    for (index, proof_file) in proof_files.iter().enumerate() {
+        log::debug!("{index:?}: {}", proof_file.display());
+    }
     let mut result_data = ResultData::default();
     let start = Instant::now();
     let mut per_file_forward_info = Vec::with_capacity(proof_files.len());
@@ -307,7 +310,11 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
         total_clauses
     );
 
-    covariance_set.pearson_correlation().unwrap().debug_print();
+    if let Some(correlation) = covariance_set.pearson_correlation() {
+        correlation.debug_print();
+    } else {
+        log::error!("No clauses found at all");
+    }
 
     result_data.unused_imports.sort_unstable();
 
