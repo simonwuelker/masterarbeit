@@ -495,9 +495,6 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
             Step::Import(import) => {
                 unused_imports.insert(import.imported_clause);
 
-                if let Some(last_id) = last_id.take() {
-                    println!("Found Communication step at {last_id:?}");
-                }
                 walker.import_clause(import);
             }
             Step::Delete(deletion) => {
