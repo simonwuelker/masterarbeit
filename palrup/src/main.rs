@@ -12,6 +12,7 @@ use std::{env, fs, io, process};
 
 mod evaluation;
 mod palrup;
+mod print;
 mod reverse_reader;
 mod walker;
 
@@ -35,6 +36,7 @@ struct Arguments {
 enum Commands {
     Local(LocalCommandArgs),
     Server(ServerCommandArgs),
+    Print(PrintCommandArgs),
 }
 
 #[derive(Args, Debug)]
@@ -42,6 +44,20 @@ struct LocalCommandArgs {
     /// Path to proof directory
     #[clap(short, long)]
     proof_directory: PathBuf,
+}
+
+#[derive(Args, Debug)]
+struct PrintCommandArgs {
+    /// File to print.
+    file: PathBuf,
+
+    /// Print only after a Clause with this or a higher ID has been added.
+    #[clap(long)]
+    from: Option<usize>,
+
+    /// Print only until a Clause with this or a higher ID has been added.
+    #[clap(long)]
+    to: Option<usize>,
 }
 
 #[derive(Args, Debug)]
@@ -162,6 +178,9 @@ fn main() -> Result<()> {
             }
             let outfile = fs::File::create(&result_path)?;
             serde_json::to_writer(outfile, &result)?;
+        }
+        Commands::Print(print_args) => {
+            print::print_command(&print_args)?;
         }
     }
 
