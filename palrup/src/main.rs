@@ -243,6 +243,8 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
     let mut last_id = Id::MAX;
     let mut critical_clauses_per_thread_over_time: Vec<_> =
         (0..proof_files.len()).map(|i| Vec::default()).collect();
+    let mut imported_by_thread_over_time: Vec<_> =
+        (0..proof_files.len()).map(|i| Vec::default()).collect();
     while let Some(next) = reverse_dag_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
@@ -285,7 +287,17 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
                     clause_gets_deleted_at.insert(*deleted_clause, last_id);
                 }
             }
-            _ => {}
+            Step::Import(import_step) => {
+                if next.is_critical {
+                    let thread_id = import_step.imported_clause as usize % proof_files.len();
+                    let index = import_step.imported_clause as usize
+                        / CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY;
+                    if imported_by_thread_over_time[thread_id].len() <= index {
+                        imported_by_thread_over_time[thread_id].resize(index + 1, 0);
+                    }
+                    imported_by_thread_over_time[thread_id][index] += 1;
+                }
+            }
         }
     }
     result_data.histogram_set = Some(histogram_set);
@@ -304,6 +316,7 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
         result_data,
         histogram_2d_set,
         critical_clauses_per_thread_over_time,
+        imported_by_thread_over_time,
     })
 }
 
@@ -314,6 +327,7 @@ struct SingleAnalysisResult {
     result_data: ResultData,
     histogram_2d_set: Histogram2DSet,
     critical_clauses_per_thread_over_time: Vec<Vec<usize>>,
+    imported_by_thread_over_time: Vec<Vec<usize>>,
 }
 
 const CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY: usize = 1024;

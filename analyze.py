@@ -243,38 +243,39 @@ def running_mean(x, N):
     return (cumsum[N:] - cumsum[:-N]) / float(N)
 
 def plot_share_of_important_clauses_per_thread_over_time(data):
-    data  = data["critical_clauses_per_thread_over_time"]
-    n_threads = len(data)
+    n_threads = len(data["critical_clauses_per_thread_over_time"])
+
+    def turn_to_percentages(data):
+        longest_sequence = max(len(data[thread_id]) for thread_id in range(n_threads))
+        x_axis_values = [1024 * i for i in range(longest_sequence)]
+
+        for thread_data in data:
+            thread_data += [0] * (longest_sequence - len(thread_data))
+            assert len(thread_data) == longest_sequence
+
+        # Compute sum per bucket
+        sums = []
+        i = 0
+        while True:
+            sum = 0
+            one_thread_contributed = False
+            for thread_id in range(n_threads):
+                if len(data[thread_id]) > i:
+                    sum += data[thread_id][i]
+                    one_thread_contributed = True
+            if sum == 0:
+                sum = 1 # just avoids a division by zero
+            sums.append(sum)
+            i += 1
+            if not one_thread_contributed:
+                break
 
 
-    longest_sequence = max(len(data[thread_id]) for thread_id in range(n_threads))
-    x_axis_values = [1024 * i for i in range(longest_sequence)]
+        y_axis_values = {thread_id: [data[thread_id][i] / sums[i] for i in range(len(data[thread_id]))] for thread_id in range(n_threads)}
+        return x_axis_values, y_axis_values, sums
 
-    for thread_data in data:
-        thread_data += [0] * (longest_sequence - len(thread_data))
-        assert len(thread_data) == longest_sequence
-
-    # Compute sum per bucket
-    sums = []
-    i = 0
-    while True:
-        sum = 0
-        one_thread_contributed = False
-        for thread_id in range(n_threads):
-            if len(data[thread_id]) > i:
-                sum += data[thread_id][i]
-                one_thread_contributed = True
-        if sum == 0:
-            sum = 1 # just avoids a division by zero
-        sums.append(sum)
-        i += 1
-        if not one_thread_contributed:
-            break
-
-
-    y_axis_values = {thread_id: [data[thread_id][i] / sums[i] for i in range(len(data[thread_id]))] for thread_id in range(n_threads)}
-
-    fig, axs = plt.subplots(2)
+    x_axis_values, y_axis_values, sums = turn_to_percentages(data["critical_clauses_per_thread_over_time"])
+    fig, axs = plt.subplots(4, figsize = (8, 12))
     axs[0].stackplot(x_axis_values, y_axis_values.values(),
                 labels=y_axis_values.keys(), alpha=0.8)
     axs[0].legend(loc='upper left', reverse=True)
@@ -289,6 +290,23 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
     axs[1].plot(x_axis_values, running_mean(np.array(sums), N))
     axs[1].set_xlabel('Clause ID')
     axs[1].set_ylabel('# Important clauses')
+
+    x_axis_values, y_axis_values, sums = turn_to_percentages(data["imported_by_thread_over_time"])
+    axs[2].stackplot(x_axis_values, y_axis_values.values(),
+                labels=y_axis_values.keys(), alpha=0.8)
+    axs[2].legend(loc='upper left', reverse=True)
+    axs[2].set_title('Clauses imported from thread over time')
+    axs[2].set_xlabel('Clause ID')
+    axs[2].set_ylabel('% of important clauses contributed by this thread')
+
+    N = 16
+    axs[3].set_title(f'Absolute number of important imports over buckets (Avg over last {N})')
+    sums = sums[:-1]
+    sums = [sums[0]] * (N - 1) + sums
+    axs[3].plot(x_axis_values, running_mean(np.array(sums), N))
+    axs[3].set_xlabel('Clause ID')
+    axs[3].set_ylabel('# Important imports')
+
     plt.tight_layout()
     plt.savefig("share_of_important_clauses_over_time.svg")
 
