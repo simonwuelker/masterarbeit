@@ -58,6 +58,10 @@ struct PrintCommandArgs {
     /// Print only until a Clause with this or a higher ID has been added.
     #[clap(long)]
     to: Option<usize>,
+
+    /// Print at most this many clauses
+    #[clap(long)]
+    take: Option<usize>,
 }
 
 #[derive(Args, Debug)]

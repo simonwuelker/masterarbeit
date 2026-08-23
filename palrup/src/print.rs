@@ -6,6 +6,7 @@ pub(crate) fn print_command(args: &PrintCommandArgs) -> anyhow::Result<()> {
     let mut did_start_printing = args.from.is_none();
     let mut did_end_printing = false;
     let take_until = args.to.unwrap_or(usize::MAX);
+    let mut clauses_printed = 0;
     for (index, entry) in iterator.enumerate() {
         match entry? {
             Step::Add(add) => {
@@ -32,6 +33,14 @@ pub(crate) fn print_command(args: &PrintCommandArgs) -> anyhow::Result<()> {
                 if did_start_printing {
                     println!("{index:0>10?}: DELETE {:?}", deletion.deleted_clauses);
                 }
+            }
+        }
+
+        if did_start_printing {
+            clauses_printed += 1;
+
+            if args.take.is_some_and(|to_take| to_take < clauses_printed) {
+                break;
             }
         }
     }
