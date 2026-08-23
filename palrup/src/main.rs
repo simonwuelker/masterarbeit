@@ -242,9 +242,9 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
     let mut clause_gets_deleted_at = FxHashMap::default();
     let mut last_id = Id::MAX;
     let mut critical_clauses_per_thread_over_time: Vec<_> =
-        (0..proof_files.len()).map(|i| Vec::default()).collect();
+        (0..proof_files.len()).map(|_| Vec::default()).collect();
     let mut imported_by_thread_over_time: Vec<_> =
-        (0..proof_files.len()).map(|i| Vec::default()).collect();
+        (0..proof_files.len()).map(|_| Vec::default()).collect();
     while let Some(next) = reverse_dag_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
@@ -333,9 +333,9 @@ struct SingleAnalysisResult {
 const CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY: usize = 1024;
 const NUM_PROBLEMS_TO_ANALYZE: usize = 10;
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct MultiAnalysisResult {
-    histogram_sets: Vec<Histogram2DSet>,
+    single_results: Vec<SingleAnalysisResult>,
 }
 
 fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
@@ -385,7 +385,7 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
         .mallob_binary
         .unwrap_or_else(|| args.mallob.join("build/mallob"));
     let mut covariance_set = CovarianceSet::default();
-    let mut histogram_sets: Vec<Histogram2DSet> = Default::default();
+    let mut single_results: Vec<SingleAnalysisResult> = Default::default();
     log::debug!("Using {num_threads} mallob solver threads");
     for problem in &problem_files {
         log::info!("Solving {}", problem.display());
@@ -445,8 +445,8 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
         log::debug!("Proof was stored in {}", proof_directory.display());
 
         let result = local_main(&proof_directory).context("Analyzing proof files")?;
-        covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set);
-        histogram_sets.push(result.histogram_2d_set);
+        covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set.clone());
+        single_results.push(result);
 
         // Clear temporary directory
         log::debug!("Clearing temporary directory");
@@ -456,7 +456,7 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
     log::info!("Pearson correlation over all files:");
     covariance_set.pearson_correlation().unwrap().debug_print();
 
-    Ok(MultiAnalysisResult { histogram_sets })
+    Ok(MultiAnalysisResult { single_results })
 }
 
 #[derive(Debug, Default, Serialize)]

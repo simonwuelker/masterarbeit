@@ -4,7 +4,6 @@ use crate::PrintCommandArgs;
 pub(crate) fn print_command(args: &PrintCommandArgs) -> anyhow::Result<()> {
     let iterator = PalrupIterator::for_file(&args.file)?;
     let mut did_start_printing = args.from.is_none();
-    let mut did_end_printing = false;
     let take_until = args.to.unwrap_or(usize::MAX);
     let mut clauses_printed = 0;
     for (index, entry) in iterator.enumerate() {
