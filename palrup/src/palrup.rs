@@ -1,8 +1,11 @@
+use std::fs;
 use std::fs::File;
-use std::io::{self, BufReader, ErrorKind, Read};
-use std::path::Path;
+use std::io::{self, BufReader, ErrorKind, Read, Write};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+
+pub(crate) type Id = isize;
 
 fn read_var_id<R>(mut reader: R) -> io::Result<Id>
 where
@@ -40,7 +43,31 @@ where
     Ok(current)
 }
 
-pub(crate) type Id = isize;
+fn write_var_int<W: Write>(mut writer: W, mut value: usize) -> io::Result<()> {
+    loop {
+        let mut byte = (value & 0x7F) as u8;
+        value >>= 7;
+        if value != 0 {
+            // More bytes will follow, set continuation bit
+            byte |= 0x80;
+            writer.write_all(&[byte])?;
+        } else {
+            // Last byte
+            writer.write_all(&[byte])?;
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn write_var_id<W: Write>(writer: W, id: Id) -> io::Result<()> {
+    let x: usize = if id >= 0 {
+        (id as usize) * 2
+    } else {
+        ((-id) as usize) * 2 + 1
+    };
+    write_var_int(writer, x)
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClauseAddition {
@@ -200,5 +227,85 @@ impl<R: Read> Iterator for PalrupIterator<R> {
             Ok(step) => Some(Ok(step)),
             Err(other) => Some(Err(other.into())),
         }
+    }
+}
+
+pub(crate) fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBuf>> {
+    let mut proof_files = Vec::new();
+
+    for entry in fs::read_dir(&proof_directory)? {
+        let solver_process_directory = entry?;
+        if solver_process_directory.file_type()?.is_dir() {
+            // Walk dir for solver threads
+            for entry in fs::read_dir(solver_process_directory.path())? {
+                let solver_thread_directory = entry?;
+                if solver_thread_directory.file_type()?.is_dir() {
+                    // Walk proof files
+                    for entry in fs::read_dir(solver_thread_directory.path())? {
+                        let entry = entry?;
+                        if entry.file_type()?.is_dir() {
+                            log::warn!(
+                                "Found unexpected directory {:?} in proof directory ({:?})",
+                                entry.file_name(),
+                                solver_thread_directory.path().display()
+                            );
+                        } else {
+                            proof_files.push(entry.path());
+                        }
+                    }
+                } else {
+                    log::warn!(
+                        "Found unexpected file {:?} in proof directory",
+                        solver_thread_directory.file_name()
+                    );
+                }
+            }
+        } else {
+            log::warn!(
+                "Found unexpected file {:?} in proof directory",
+                solver_process_directory.file_name()
+            );
+        }
+    }
+    proof_files.sort_unstable();
+
+    Ok(proof_files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    #[test]
+    fn read_write_var_integer() {
+        fn assert_for_value(value: usize) {
+            let mut buffer: Vec<u8> = vec![];
+            write_var_int(&mut buffer, value).unwrap();
+            assert_eq!(read_var_int(io::Cursor::new(buffer)).unwrap(), value);
+        }
+
+        assert_for_value(0);
+        assert_for_value(42);
+        assert_for_value(usize::MAX);
+        assert_for_value(usize::MAX / 2);
+        assert_for_value(123456);
+    }
+
+    #[test]
+    fn read_write_var_id() {
+        fn assert_for_value(value: Id) {
+            let mut buffer: Vec<u8> = vec![];
+            write_var_id(&mut buffer, value).unwrap();
+            assert_eq!(read_var_id(io::Cursor::new(buffer)).unwrap(), value);
+        }
+
+        assert_for_value(0);
+        assert_for_value(-1);
+        assert_for_value(42);
+        assert_for_value(Id::MAX);
+        assert_for_value(Id::MAX / 2);
+        assert_for_value(Id::MIN / 2);
+        assert_for_value(123456);
     }
 }
