@@ -231,6 +231,9 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
         log::error!("None of the proof files found a UNSAT clause");
         return Err(anyhow!("No UNSAT clause found"));
     };
+    // We always want roughly a thousand buckets
+    let bucket_size_for_stacked_plots = id_of_unsat_clause as usize / 1000;
+    log::debug!("Inferred bucket size for stacked plots: {bucket_size_for_stacked_plots:?}");
 
     log::info!("Constructing reverse DAG...");
     let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause, smallest_derived_id);
@@ -255,8 +258,7 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
                     important_clauses += 1;
 
                     let thread_id = add_step.id as usize % proof_files.len();
-                    let index =
-                        add_step.id as usize / CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY;
+                    let index = add_step.id as usize / bucket_size_for_stacked_plots;
                     if critical_clauses_per_thread_over_time[thread_id].len() <= index {
                         critical_clauses_per_thread_over_time[thread_id].resize(index + 1, 0);
                     }
@@ -282,8 +284,8 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
                 };
 
                 covariance_set.add_sample(metrics);
-                histogram_set.add_sample(metrics);
-                histogram_2d_set.add_sample(metrics);
+                // histogram_set.add_sample(metrics);
+                // histogram_2d_set.add_sample(metrics);
             }
             Step::Delete(delete_step) => {
                 for deleted_clause in &delete_step.deleted_clauses {
@@ -293,8 +295,8 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
             Step::Import(import_step) => {
                 if next.is_critical {
                     let thread_id = import_step.imported_clause as usize % proof_files.len();
-                    let index = import_step.imported_clause as usize
-                        / CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY;
+                    let index =
+                        import_step.imported_clause as usize / bucket_size_for_stacked_plots;
                     if imported_by_thread_over_time[thread_id].len() <= index {
                         imported_by_thread_over_time[thread_id].resize(index + 1, 0);
                     }
@@ -324,6 +326,7 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
         histogram_2d_set,
         critical_clauses_per_thread_over_time,
         imported_by_thread_over_time,
+        stacked_plot_bucket_size: bucket_size_for_stacked_plots,
     })
 }
 
@@ -335,6 +338,7 @@ struct SingleAnalysisResult {
     histogram_2d_set: Histogram2DSet,
     critical_clauses_per_thread_over_time: Vec<Vec<usize>>,
     imported_by_thread_over_time: Vec<Vec<usize>>,
+    stacked_plot_bucket_size: usize,
 }
 
 const CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY: usize = 1024;
