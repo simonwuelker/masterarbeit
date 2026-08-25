@@ -69,21 +69,22 @@ fn write_var_id<W: Write>(writer: W, id: Id) -> io::Result<()> {
     write_var_int(writer, x)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClauseAddition {
     pub(crate) id: Id,
     pub(crate) literals: Vec<usize>,
     pub(crate) hints: Vec<Id>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClauseDeletion {
     pub(crate) deleted_clauses: Vec<Id>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClauseImport {
     pub(crate) imported_clause: Id,
+    pub(crate) literals: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -123,6 +124,25 @@ impl ClauseAddition {
         })
     }
 
+    pub(crate) fn write<W>(&self, mut writer: W) -> io::Result<()>
+    where
+        W: Write,
+    {
+        write_var_id(&mut writer, self.id)?;
+
+        for literal in &self.literals {
+            write_var_int(&mut writer, *literal)?;
+        }
+        writer.write_all(&[0])?;
+
+        for hint in &self.hints {
+            write_var_id(&mut writer, *hint)?;
+        }
+        writer.write_all(&[0])?;
+
+        Ok(())
+    }
+
     pub(crate) fn is_unsat_clause(&self) -> bool {
         self.literals.is_empty()
     }
@@ -142,6 +162,18 @@ impl ClauseDeletion {
 
         Ok(ClauseDeletion { deleted_clauses })
     }
+
+    pub(crate) fn write<W>(&self, mut writer: W) -> io::Result<()>
+    where
+        W: Write,
+    {
+        for deleted_clause in &self.deleted_clauses {
+            write_var_id(&mut writer, *deleted_clause)?;
+        }
+        writer.write_all(&[0])?;
+
+        Ok(())
+    }
 }
 
 impl ClauseImport {
@@ -152,12 +184,31 @@ impl ClauseImport {
         let imported_clause = read_var_id(&mut reader)?;
 
         // Read clause literals
+        let mut literals = Vec::new();
         let mut next = read_var_int(&mut reader)?;
         while next != 0 {
+            literals.push(next);
             next = read_var_int(&mut reader)?;
         }
 
-        Ok(ClauseImport { imported_clause })
+        Ok(ClauseImport {
+            imported_clause,
+            literals,
+        })
+    }
+
+    pub(crate) fn write<W>(&self, mut writer: W) -> io::Result<()>
+    where
+        W: Write,
+    {
+        write_var_id(&mut writer, self.imported_clause)?;
+
+        for literal in &self.literals {
+            write_var_int(&mut writer, *literal)?;
+        }
+        writer.write_all(&[0])?;
+
+        Ok(())
     }
 }
 
@@ -307,5 +358,65 @@ mod tests {
         assert_for_value(Id::MAX / 2);
         assert_for_value(Id::MIN / 2);
         assert_for_value(123456);
+    }
+
+    #[test]
+    fn read_write_clause_addition() {
+        fn assert_for_value(value: ClauseAddition) {
+            let mut buffer: Vec<u8> = vec![];
+            value.write(&mut buffer).unwrap();
+            assert_eq!(
+                ClauseAddition::read(io::Cursor::new(buffer)).unwrap(),
+                value
+            );
+        }
+
+        assert_for_value(ClauseAddition {
+            id: 0,
+            literals: vec![],
+            hints: vec![],
+        });
+        assert_for_value(ClauseAddition {
+            id: 42,
+            literals: vec![1, 2],
+            hints: vec![4, 5],
+        });
+    }
+
+    #[test]
+    fn read_write_clause_deletion() {
+        fn assert_for_value(value: ClauseDeletion) {
+            let mut buffer: Vec<u8> = vec![];
+            value.write(&mut buffer).unwrap();
+            assert_eq!(
+                ClauseDeletion::read(io::Cursor::new(buffer)).unwrap(),
+                value
+            );
+        }
+
+        assert_for_value(ClauseDeletion {
+            deleted_clauses: vec![],
+        });
+        assert_for_value(ClauseDeletion {
+            deleted_clauses: vec![1, 0x4200, 3],
+        });
+    }
+
+    #[test]
+    fn read_write_clause_import() {
+        fn assert_for_value(value: ClauseImport) {
+            let mut buffer: Vec<u8> = vec![];
+            value.write(&mut buffer).unwrap();
+            assert_eq!(ClauseImport::read(io::Cursor::new(buffer)).unwrap(), value);
+        }
+
+        assert_for_value(ClauseImport {
+            imported_clause: 04200,
+            literals: vec![1, 2, 3],
+        });
+        assert_for_value(ClauseImport {
+            imported_clause: 1,
+            literals: vec![],
+        });
     }
 }
