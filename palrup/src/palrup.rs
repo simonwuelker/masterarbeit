@@ -248,6 +248,28 @@ impl Step {
         }
         Some(step)
     }
+
+    pub(crate) fn write<W>(&self, mut writer: W) -> io::Result<()>
+    where
+        W: Write,
+    {
+        match self {
+            Self::Add(addition) => {
+                writer.write_all(&[b'a'])?;
+                addition.write(&mut writer)?;
+            }
+            Self::Import(import) => {
+                writer.write_all(&[b'i'])?;
+                import.write(&mut writer)?;
+            }
+            Self::Delete(deletion) => {
+                writer.write_all(&[b'd'])?;
+                deletion.write(&mut writer)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub(crate) struct PalrupIterator<R: Read> {

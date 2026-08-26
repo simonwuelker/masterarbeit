@@ -8,18 +8,19 @@ use std::collections::HashMap;
 use std::path::{self, Path, PathBuf};
 use std::process::Stdio;
 use std::time::Instant;
-use std::{env, fs, io, process};
+use std::{env, fs, process};
 
 mod evaluation;
 mod palrup;
 mod print;
 mod reverse_reader;
+mod strip;
 mod walker;
 
 use crate::evaluation::histogram_2d::{Histogram2D, Histogram2DSet};
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{CovarianceSet, MetricSet};
-use crate::palrup::{Id, PalrupIterator, Step};
+use crate::palrup::{find_proof_files, Id, PalrupIterator, Step};
 use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 
@@ -37,11 +38,12 @@ enum Commands {
     Local(LocalCommandArgs),
     Server(ServerCommandArgs),
     Print(PrintCommandArgs),
+    Strip(StripCommandArgs),
 }
 
 #[derive(Args, Debug)]
 struct LocalCommandArgs {
-    /// Path to proof directory
+    /// Path to proof directory.
     #[clap(short, long)]
     proof_directory: PathBuf,
 }
@@ -88,45 +90,18 @@ struct ServerCommandArgs {
     temp_directory: Option<PathBuf>,
 }
 
-fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBuf>> {
-    let mut proof_files = Vec::new();
+#[derive(Args, Debug)]
+struct StripCommandArgs {
+    /// Path to proof directory.
+    proof_directory: PathBuf,
 
-    for entry in fs::read_dir(&proof_directory)? {
-        let solver_process_directory = entry?;
-        if solver_process_directory.file_type()?.is_dir() {
-            // Walk dir for solver threads
-            for entry in fs::read_dir(solver_process_directory.path())? {
-                let solver_thread_directory = entry?;
-                if solver_thread_directory.file_type()?.is_dir() {
-                    // Walk proof files
-                    for entry in fs::read_dir(solver_thread_directory.path())? {
-                        let entry = entry?;
-                        if entry.file_type()?.is_dir() {
-                            log::warn!(
-                                "Found unexpected directory {:?} in proof directory ({:?})",
-                                entry.file_name(),
-                                solver_thread_directory.path().display()
-                            );
-                        } else {
-                            proof_files.push(entry.path());
-                        }
-                    }
-                } else {
-                    log::warn!(
-                        "Found unexpected file {:?} in proof directory",
-                        solver_thread_directory.file_name()
-                    );
-                }
-            }
-        } else {
-            log::warn!(
-                "Found unexpected file {:?} in proof directory",
-                solver_process_directory.file_name()
-            );
-        }
-    }
+    /// Path to directory that the stripped proof should be written to.
+    stripped_directory: PathBuf,
 
-    Ok(proof_files)
+    /// The estimated probabilty that a clause that is NOT important will appear
+    /// in the stripped proof.
+    #[clap(long, default_value = "0.01")]
+    error_probability: f32,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -186,6 +161,9 @@ fn main() -> Result<()> {
         Commands::Print(print_args) => {
             print::print_command(&print_args)?;
         }
+        Commands::Strip(strip_args) => {
+            strip::strip_command(&strip_args)?;
+        }
     }
 
     Ok(())
@@ -194,7 +172,6 @@ fn main() -> Result<()> {
 fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
     // Walk dir for solver processes
     let mut proof_files = find_proof_files(proof_directory)?;
-    proof_files.sort_unstable();
 
     log::info!("Parsing proof files");
     for (index, proof_file) in proof_files.iter().enumerate() {
