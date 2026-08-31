@@ -375,6 +375,7 @@ dependencies = [
  "growable-bloom-filter",
  "log",
  "rayon",
+ "regex",
  "rustc-hash",
  "serde",
  "serde_json",

@@ -11,6 +11,7 @@ use std::time::Instant;
 use std::{env, fs, process};
 
 mod evaluation;
+mod import_log_parser;
 mod palrup;
 mod print;
 mod reverse_reader;
@@ -46,6 +47,10 @@ struct LocalCommandArgs {
     /// Path to proof directory.
     #[clap(short, long)]
     proof_directory: PathBuf,
+
+    /// Path to stdout capture.
+    #[clap(short, long)]
+    stdout_capture: PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -119,7 +124,8 @@ fn main() -> Result<()> {
     match args.command {
         Commands::Local(local_args) => {
             log::info!("Using local mode");
-            let result = local_main(&local_args.proof_directory)?;
+            let stdout_capture = fs::read_to_string(&local_args.stdout_capture)?;
+            let result = local_main(&local_args.proof_directory, &stdout_capture)?;
 
             let result_path = "out.json";
             if fs::exists(&result_path)? {
@@ -169,7 +175,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
+fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnalysisResult> {
     // Walk dir for solver processes
     let mut proof_files = find_proof_files(proof_directory)?;
 
@@ -297,6 +303,8 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
 
     result_data.unused_imports.sort_unstable();
 
+    let imports_at_clause_ids = import_log_parser::parse(stdout_capture);
+
     Ok(SingleAnalysisResult {
         covariance_set,
         result_data,
@@ -304,6 +312,7 @@ fn local_main(proof_directory: &Path) -> Result<SingleAnalysisResult> {
         critical_clauses_per_thread_over_time,
         imported_by_thread_over_time,
         stacked_plot_bucket_size: bucket_size_for_stacked_plots,
+        imports_at_clause_ids,
     })
 }
 
@@ -316,6 +325,7 @@ struct SingleAnalysisResult {
     critical_clauses_per_thread_over_time: Vec<Vec<usize>>,
     imported_by_thread_over_time: Vec<Vec<usize>>,
     stacked_plot_bucket_size: usize,
+    imports_at_clause_ids: Vec<import_log_parser::ImportStep>,
 }
 
 const CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY: usize = 1024;
@@ -409,7 +419,7 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
             .wait_with_output()
             .context("Waiting for mallob to complete")?;
         fs::write(temp_dir.join("stdout"), &output.stdout).context("Log mallob stdout")?;
-        fs::write(temp_dir.join("stderr"), &output.stdout).context("Log mallob stderr")?;
+        fs::write(temp_dir.join("stderr"), &output.stderr).context("Log mallob stderr")?;
         if !output.status.success() {
             log::error!(
                 "Mallob invocation failed with exit code {:?}",
@@ -432,7 +442,8 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
         };
         log::debug!("Proof was stored in {}", proof_directory.display());
 
-        let result = local_main(&proof_directory).context("Analyzing proof files")?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let result = local_main(&proof_directory, &stdout).context("Analyzing proof files")?;
         covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set.clone());
         single_results.push(result);
 
