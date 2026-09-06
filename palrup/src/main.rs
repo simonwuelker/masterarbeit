@@ -10,6 +10,7 @@ use std::process::Stdio;
 use std::time::Instant;
 use std::{env, fs, process};
 
+mod bucket_store;
 mod evaluation;
 mod import_log_parser;
 mod palrup;
@@ -18,6 +19,7 @@ mod reverse_reader;
 mod strip;
 mod walker;
 
+use crate::bucket_store::{BucketStore, Sum};
 use crate::evaluation::histogram_2d::{Histogram2D, Histogram2DSet};
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{CovarianceSet, MetricSet};
@@ -230,22 +232,20 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
     let mut total_clauses = 0;
     let mut clause_gets_deleted_at = FxHashMap::default();
     let mut last_id = Id::MAX;
-    let mut critical_clauses_per_thread_over_time: Vec<_> =
-        (0..proof_files.len()).map(|_| Vec::default()).collect();
-    let mut imported_by_thread_over_time: Vec<_> =
-        (0..proof_files.len()).map(|_| Vec::default()).collect();
+    let mut critical_clauses_per_thread_over_time =
+        BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
+    let mut imported_by_thread_over_time =
+        BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
     while let Some(next) = reverse_dag_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
                 if next.is_critical {
                     important_clauses += 1;
-
-                    let thread_id = add_step.id as usize % proof_files.len();
-                    let index = add_step.id as usize / bucket_size_for_stacked_plots;
-                    if critical_clauses_per_thread_over_time[thread_id].len() <= index {
-                        critical_clauses_per_thread_over_time[thread_id].resize(index + 1, 0);
-                    }
-                    critical_clauses_per_thread_over_time[thread_id][index] += 1;
+                    critical_clauses_per_thread_over_time.insert(
+                        add_step.id as usize,
+                        1,
+                        proof_files.len(),
+                    );
                 }
 
                 last_id = add_step.id;
@@ -277,13 +277,11 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
             }
             Step::Import(import_step) => {
                 if next.is_critical {
-                    let thread_id = import_step.imported_clause as usize % proof_files.len();
-                    let index =
-                        import_step.imported_clause as usize / bucket_size_for_stacked_plots;
-                    if imported_by_thread_over_time[thread_id].len() <= index {
-                        imported_by_thread_over_time[thread_id].resize(index + 1, 0);
-                    }
-                    imported_by_thread_over_time[thread_id][index] += 1;
+                    imported_by_thread_over_time.insert(
+                        import_step.imported_clause as usize,
+                        1,
+                        proof_files.len(),
+                    );
                 }
             }
         }
@@ -322,8 +320,8 @@ struct SingleAnalysisResult {
     covariance_set: CovarianceSet,
     result_data: ResultData,
     histogram_2d_set: Histogram2DSet,
-    critical_clauses_per_thread_over_time: Vec<Vec<usize>>,
-    imported_by_thread_over_time: Vec<Vec<usize>>,
+    critical_clauses_per_thread_over_time: BucketStore<Sum>,
+    imported_by_thread_over_time: BucketStore<Sum>,
     stacked_plot_bucket_size: usize,
     imports_at_clause_ids: Vec<import_log_parser::ImportStep>,
 }
