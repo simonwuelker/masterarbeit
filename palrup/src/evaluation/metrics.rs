@@ -4,7 +4,7 @@ use super::online_covariance::OnlineCovariance;
 
 use std::iter;
 
-pub(crate) const NUMBER_OF_METRICS: usize = 7;
+pub(crate) const NUMBER_OF_METRICS: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MetricSet {
@@ -15,6 +15,7 @@ pub(crate) struct MetricSet {
     pub id: usize,
     pub lifetime: usize,
     pub minimum_lifetime: usize,
+    pub average_lookbehind: f64,
 }
 
 pub(crate) fn metric_name_for(index: usize) -> &'static str {
@@ -26,6 +27,7 @@ pub(crate) fn metric_name_for(index: usize) -> &'static str {
         4 => "Clause ID",
         5 => "Lifetime",
         6 => "Minimum lifetime",
+        7 => "Avg. Lookbehind",
         _ => unreachable!("Metric index out of bounds"),
     }
 }
@@ -40,6 +42,7 @@ impl MetricSet {
             4 => self.id as f64,
             5 => self.lifetime as f64,
             6 => self.minimum_lifetime as f64,
+            7 => self.average_lookbehind,
             _ => unreachable!("Metric index out of bounds"),
         }
     }

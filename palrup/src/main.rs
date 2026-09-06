@@ -19,7 +19,7 @@ mod reverse_reader;
 mod strip;
 mod walker;
 
-use crate::bucket_store::{BucketStore, Sum};
+use crate::bucket_store::{Average, BucketStore, Sum};
 use crate::evaluation::histogram_2d::{Histogram2D, Histogram2DSet};
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{CovarianceSet, MetricSet};
@@ -236,6 +236,7 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
         BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
     let mut imported_by_thread_over_time =
         BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
+    let mut average_lookbehind_per_bucket = BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
     while let Some(next) = reverse_dag_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
@@ -256,6 +257,14 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
                     .unwrap_or(id_of_unsat_clause)
                     - add_step.id;
 
+                let generated_hints: Vec<_> = add_step.hints.iter().filter(|hint| **hint >= smallest_derived_id).collect();
+                let average_lookbehind = if !generated_hints.is_empty() {
+                    generated_hints.iter().copied()
+                    .map(|id| add_step.id - id).sum::<Id>() as f64 / generated_hints.len() as f64
+                } else {
+                    0.0
+                };
+
                 let metrics = MetricSet {
                     is_critical: next.is_critical,
                     number_of_literals: add_step.literals.len(),
@@ -264,9 +273,11 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
                     id: add_step.id as usize,
                     lifetime: lifetime as usize,
                     minimum_lifetime: next.minimum_lifetime,
+                    average_lookbehind,
                 };
 
                 covariance_set.add_sample(metrics);
+                average_lookbehind_per_bucket.insert(add_step.id as usize, average_lookbehind, proof_files.len());
                 // histogram_set.add_sample(metrics);
                 // histogram_2d_set.add_sample(metrics);
             }
@@ -310,6 +321,7 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
         critical_clauses_per_thread_over_time,
         imported_by_thread_over_time,
         stacked_plot_bucket_size: bucket_size_for_stacked_plots,
+        average_lookbehind_per_bucket,
         imports_at_clause_ids,
     })
 }
@@ -322,6 +334,7 @@ struct SingleAnalysisResult {
     histogram_2d_set: Histogram2DSet,
     critical_clauses_per_thread_over_time: BucketStore<Sum>,
     imported_by_thread_over_time: BucketStore<Sum>,
+    average_lookbehind_per_bucket: BucketStore<Average>,
     stacked_plot_bucket_size: usize,
     imports_at_clause_ids: Vec<import_log_parser::ImportStep>,
 }

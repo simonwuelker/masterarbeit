@@ -7,16 +7,40 @@ pub(crate) struct BucketStore<A> {
     buckets: Vec<Vec<A>>,
 }
 
-trait Accumulator: Default + Clone + Serialize {
-    fn add(&mut self, value: usize);
+pub(crate) trait Accumulator: Default + Clone + Serialize {
+    type Value;
+
+    fn add(&mut self, value: Self::Value);
 }
 
 #[derive(Clone, Default, Serialize)]
 pub(crate) struct Sum(usize);
 
 impl Accumulator for Sum {
-    fn add(&mut self, value: usize) {
+    type Value = usize;
+
+    fn add(&mut self, value: Self::Value) {
         self.0 += value;
+    }
+}
+
+#[derive(Clone, Default, Serialize)]
+#[serde(transparent)]
+pub(crate) struct Average {
+    #[serde(skip)]
+    number_of_samples: usize,
+    average: f64,
+}
+
+impl Accumulator for Average {
+    type Value = f64;
+
+    fn add(&mut self, value: Self::Value) {
+        self.number_of_samples += 1;
+        let number_of_samples = self.number_of_samples as f64;
+
+        let delta = value - self.average;
+        self.average += delta / number_of_samples;
     }
 }
 
@@ -31,7 +55,7 @@ where
         }
     }
 
-    pub(crate) fn insert(&mut self, clause_id: usize, value: usize, number_of_proof_files: usize) {
+    pub(crate) fn insert(&mut self, clause_id: usize, value: A::Value, number_of_proof_files: usize) {
         let thread_id = clause_id % number_of_proof_files;
         let index = clause_id / self.bucket_size;
         if self.buckets[thread_id].len() <= index {

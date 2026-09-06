@@ -261,7 +261,6 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
 
     def turn_to_percentages(data):
         longest_sequence = max(len(data[thread_id]) for thread_id in range(n_threads))
-        print("longest sequence", longest_sequence)
         x_axis_values = [1024 * i for i in range(longest_sequence)]
 
         # Compute sum per bucket
@@ -304,7 +303,6 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
 
     xticks = []
     for index, import_epoch in enumerate(import_epochs):
-        print("import epoch", index)
         xticks.append(import_epochs[0]["lrat_ids"][0] * index)
         can_continue = True
         for thread_id in range(n_threads):
@@ -335,7 +333,7 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
     x_axis_values, y_axis_values, sums = turn_to_percentages(resampled_data)
 
 
-    fig, axs = plt.subplots(4, figsize = (10, 14))
+    fig, axs = plt.subplots(5, figsize = (10, 14))
     axs[0].stackplot(x_axis_values, y_axis_values.values(),
                 labels=y_axis_values.keys(), alpha=0.8)
     axs[0].legend(loc='upper left', reverse=True)
@@ -382,6 +380,14 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
     axs[3].plot(x_axis_values, running_mean(np.array(sums), N))
     axs[3].set_xlabel('Clause ID')
     axs[3].set_ylabel('# Important imports')
+
+    axs[4].set_title('Average Lookbehind')
+    x_axis_values, y_axis_values, sums = turn_to_percentages(data["average_lookbehind_per_bucket"]["buckets"])
+    sums = sums[:-1]
+    # sums = [sums[0]] * (N - 1) + sums
+    axs[4].plot(x_axis_values, sums)
+    axs[4].set_xlabel('Clause ID')
+    axs[4].set_ylabel('Average lookbehind')
 
     plt.tight_layout()
     plt.savefig("share_of_important_clauses_over_time.svg")
