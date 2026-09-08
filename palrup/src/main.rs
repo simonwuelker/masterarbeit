@@ -13,6 +13,7 @@ use std::{env, fs, process};
 mod bucket_store;
 mod evaluation;
 mod import_log_parser;
+mod overlap;
 mod palrup;
 mod print;
 mod reverse_reader;
@@ -42,6 +43,7 @@ enum Commands {
     Server(ServerCommandArgs),
     Print(PrintCommandArgs),
     Strip(StripCommandArgs),
+    Overlap(OverlapCommandArgs),
 }
 
 #[derive(Args, Debug)]
@@ -111,6 +113,18 @@ struct StripCommandArgs {
     error_probability: f32,
 }
 
+#[derive(Args, Debug)]
+struct OverlapCommandArgs {
+    /// Path to proof directory.
+    proof_directory: PathBuf,
+
+    /// Index of first proof.
+    first: usize,
+
+    /// Index of second proof.
+    second: usize,
+}
+
 #[derive(Debug, Default, Serialize)]
 struct ResultData {
     per_file: HashMap<PathBuf, PerFileInfo>,
@@ -171,6 +185,13 @@ fn main() -> Result<()> {
         }
         Commands::Strip(strip_args) => {
             strip::strip_command(&strip_args)?;
+        }
+        Commands::Overlap(overlap_args) => {
+            let mut proof_files = find_proof_files(&overlap_args.proof_directory)?;
+            overlap::overlap(
+                &proof_files[overlap_args.first],
+                &proof_files[overlap_args.second],
+            )?;
         }
     }
 
@@ -236,7 +257,8 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
         BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
     let mut imported_by_thread_over_time =
         BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
-    let mut average_lookbehind_per_bucket = BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
+    let mut average_lookbehind_per_bucket =
+        BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
     while let Some(next) = reverse_dag_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
@@ -257,10 +279,18 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
                     .unwrap_or(id_of_unsat_clause)
                     - add_step.id;
 
-                let generated_hints: Vec<_> = add_step.hints.iter().filter(|hint| **hint >= smallest_derived_id).collect();
+                let generated_hints: Vec<_> = add_step
+                    .hints
+                    .iter()
+                    .filter(|hint| **hint >= smallest_derived_id)
+                    .collect();
                 let average_lookbehind = if !generated_hints.is_empty() {
-                    generated_hints.iter().copied()
-                    .map(|id| add_step.id - id).sum::<Id>() as f64 / generated_hints.len() as f64
+                    generated_hints
+                        .iter()
+                        .copied()
+                        .map(|id| add_step.id - id)
+                        .sum::<Id>() as f64
+                        / generated_hints.len() as f64
                 } else {
                     0.0
                 };
@@ -277,7 +307,11 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
                 };
 
                 covariance_set.add_sample(metrics);
-                average_lookbehind_per_bucket.insert(add_step.id as usize, average_lookbehind, proof_files.len());
+                average_lookbehind_per_bucket.insert(
+                    add_step.id as usize,
+                    average_lookbehind,
+                    proof_files.len(),
+                );
                 // histogram_set.add_sample(metrics);
                 // histogram_2d_set.add_sample(metrics);
             }

@@ -55,7 +55,12 @@ where
         }
     }
 
-    pub(crate) fn insert(&mut self, clause_id: usize, value: A::Value, number_of_proof_files: usize) {
+    pub(crate) fn insert(
+        &mut self,
+        clause_id: usize,
+        value: A::Value,
+        number_of_proof_files: usize,
+    ) {
         let thread_id = clause_id % number_of_proof_files;
         let index = clause_id / self.bucket_size;
         if self.buckets[thread_id].len() <= index {

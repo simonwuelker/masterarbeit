@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.102"
+apache-datasketches = { version = "0.2.3", default-features = false, features = ["theta"] }
+bytemuck = "1.25.2"
 clap = { version = "3", features = ["derive"] }
 env_logger = "0.11.11"
 growable-bloom-filter = "2.1.1"
