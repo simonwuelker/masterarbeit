@@ -245,8 +245,11 @@ def running_mean(x, N):
 def resample_1d(y, m):
     y = np.asarray(y)
     n = y.size
-    print(f"resampling {n} to {m}")
-    if n == 0 or m <= 0:
+
+    if n == 0:
+        return np.zeros(m)
+
+    if m <= 0:
         raise ValueError("y must be non-empty and m must be > 0")
     if n == 1:
         return np.full(m, y[0], dtype=float)
@@ -259,9 +262,10 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
     n_threads = len(data["critical_clauses_per_thread_over_time"]["buckets"])
     print(f"{n_threads} threads")
 
+    GRANULARITY = data["stacked_plot_bucket_size"]
     def turn_to_percentages(data):
         longest_sequence = max(len(data[thread_id]) for thread_id in range(n_threads))
-        x_axis_values = [1024 * i for i in range(longest_sequence)]
+        x_axis_values = [GRANULARITY * i for i in range(longest_sequence)]
 
         # Compute sum per bucket
         sums = []
@@ -292,7 +296,8 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
         return x_axis_values, y_axis_values, sums
 
     # Preprocess data such that it is aligned on imports
-    GRANULARITY = 1024
+
+    print(GRANULARITY)
     raw_data = data["critical_clauses_per_thread_over_time"]["buckets"]
     import_epochs = data["imports_at_clause_ids"]
 
@@ -303,17 +308,9 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
 
     xticks = []
     for index, import_epoch in enumerate(import_epochs):
-        xticks.append(import_epochs[0]["lrat_ids"][0] * index)
-        can_continue = True
-        for thread_id in range(n_threads):
-            import_happened_at_x_value = import_epoch["lrat_ids"][thread_id] // GRANULARITY
-            if import_happened_at_x_value >= len(raw_data[thread_id]):
-                # how
-                can_continue = False
-                break;
-
-        if not can_continue:
-            break;
+        # We add 1 on the index here because we obviously don't communicate
+        # at timestamp zero.
+        xticks.append(reference_duration * (index + 1) * GRANULARITY)
 
         for thread_id in range(n_threads):
             data_for_thread = raw_data[thread_id]
@@ -342,7 +339,7 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
     axs[0].set_ylabel('% of important clauses contributed by this thread')
     axs[0].get_legend().remove();
     axs[0].set_xticks(xticks)
-    print(xticks)
+    print("xticks", xticks)
 
     # print([len(y_axis_values[t]) for t in range(n_threads)])
     # for import_epoch in import_epochs:
@@ -397,11 +394,11 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
 # plot_histograms(data)
 # plot_2d_histograms(data)
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][0])
-plot_share_of_important_clauses_per_thread_over_time(data)
+# plot_share_of_important_clauses_per_thread_over_time(data)
 
 
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][3]) # good
-# plot_share_of_important_clauses_per_thread_over_time(data["single_results"][5]) # nice
+plot_share_of_important_clauses_per_thread_over_time(data["single_results"][5]) # nice
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][6]) # wtf
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][8]) # long time no progress then everything at once
 
