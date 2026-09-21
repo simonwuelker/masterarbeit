@@ -389,6 +389,20 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
     plt.tight_layout()
     plt.savefig("share_of_important_clauses_over_time.svg")
 
+def plot_contributions_over_time(data):
+    data = data["critical_clauses_per_thread_over_time"]["buckets"]
+    n_threads = len(data)
+
+    x = [x for x in range(n_threads)]
+    y = []
+    colors = [plt.cm.tab10.colors[i % 10] for i in range(n_threads)]
+    for n in range(n_threads):
+        y.append(sum(data[n]))
+    plt.title("Total contributions per thread across 10 configurations")
+    plt.bar(x, y, color=colors)
+    plt.xticks(x)
+    plt.tight_layout();
+
 # plot_import_generations(data)
 # plot_unused_imports_per_generation(data)
 # plot_histograms(data)
@@ -398,10 +412,11 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
 
 
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][3]) # good
-plot_share_of_important_clauses_per_thread_over_time(data["single_results"][5]) # nice
+# plot_share_of_important_clauses_per_thread_over_time(data["single_results"][5]) # nice
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][6]) # wtf
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][8]) # long time no progress then everything at once
 
 # plot_share_of_important_clauses_per_thread_over_time(data)
+plot_contributions_over_time(data)
 if args.show_plots:
     plt.show()
