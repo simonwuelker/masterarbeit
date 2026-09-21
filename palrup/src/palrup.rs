@@ -1,6 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::io::{self, BufReader, ErrorKind, Read, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -340,7 +341,11 @@ pub(crate) fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result
             );
         }
     }
-    proof_files.sort_unstable();
+    proof_files.sort_unstable_by_key(|path| {
+        let bytes = path.components().nth_back(1).unwrap().as_os_str().as_bytes();
+        let index: usize = String::from_utf8_lossy(bytes).parse().unwrap();
+        index
+    });
 
     Ok(proof_files)
 }
