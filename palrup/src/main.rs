@@ -13,6 +13,7 @@ use std::{env, fs, process};
 mod bucket_store;
 mod evaluation;
 mod import_log_parser;
+#[cfg(feature = "overlap")]
 mod overlap;
 mod palrup;
 mod print;
@@ -187,7 +188,14 @@ fn main() -> Result<()> {
             strip::strip_command(&strip_args)?;
         }
         Commands::Overlap(overlap_args) => {
+            if !cfg!(feature = "overlap") {
+                log::error!("\"overlap\" feature is not enabled");
+                return Ok(());
+            }
+
             let mut proof_files = find_proof_files(&overlap_args.proof_directory)?;
+
+            #[cfg(feature = "overlap")]
             overlap::overlap(
                 &proof_files[overlap_args.first],
                 &proof_files[overlap_args.second],
