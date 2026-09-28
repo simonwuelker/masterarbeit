@@ -403,6 +403,13 @@ def plot_contributions_over_time(data):
     plt.xticks(x)
     plt.tight_layout();
 
+def plot_clause_depths(data):
+    plt.title("Clause depths")
+    plt.plot(np.arange(0, len(data)), data)
+    plt.grid()
+    plt.yscale("log")
+    plt.savefig("clause_depths.svg")
+
 # plot_import_generations(data)
 # plot_unused_imports_per_generation(data)
 # plot_histograms(data)
@@ -417,6 +424,7 @@ def plot_contributions_over_time(data):
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][8]) # long time no progress then everything at once
 
 # plot_share_of_important_clauses_per_thread_over_time(data)
-plot_contributions_over_time(data)
+# plot_contributions_over_time(data)
+plot_clause_depths(data)
 if args.show_plots:
     plt.show()

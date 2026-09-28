@@ -11,6 +11,7 @@ use std::time::Instant;
 use std::{env, fs, process};
 
 mod bucket_store;
+mod depths;
 mod evaluation;
 mod import_log_parser;
 #[cfg(feature = "overlap")]
@@ -45,6 +46,7 @@ enum Commands {
     Print(PrintCommandArgs),
     Strip(StripCommandArgs),
     Overlap(OverlapCommandArgs),
+    Depth(DepthCommandArgs),
 }
 
 #[derive(Args, Debug)]
@@ -56,6 +58,12 @@ struct LocalCommandArgs {
     /// Path to stdout capture.
     #[clap(short, long)]
     stdout_capture: PathBuf,
+}
+
+#[derive(Args, Debug)]
+struct DepthCommandArgs {
+    /// Path to proof directory.
+    proof_directory: PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -200,6 +208,9 @@ fn main() -> Result<()> {
                 &proof_files[overlap_args.first],
                 &proof_files[overlap_args.second],
             )?;
+        }
+        Commands::Depth(depth_args) => {
+            depths::depths(&depth_args.proof_directory)?;
         }
     }
 
