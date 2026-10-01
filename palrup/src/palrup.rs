@@ -304,6 +304,9 @@ impl<R: Read> Iterator for PalrupIterator<R> {
     }
 }
 
+/// Returns an ordered list of paths to the PalRUP files of a proof.
+///
+/// The files are ordered by the ID of the solver that created them.
 pub(crate) fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBuf>> {
     let mut proof_files = Vec::new();
 

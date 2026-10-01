@@ -403,11 +403,44 @@ def plot_contributions_over_time(data):
     plt.xticks(x)
     plt.tight_layout();
 
-def plot_clause_depths(data):
-    plt.title("Clause depths")
-    plt.plot(np.arange(0, len(data)), data)
+def rolling_window(a, window):
+    shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
+    strides = a.strides + (a.strides[-1],)
+    return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
+
+def plot_clause_depths_single(data):
+    window_size = 4
+    sums = np.array([sum(data[0])] * (window_size - 1) + [sum(at_depth) for at_depth in data])
+    plt.plot(np.arange(0, len(data)), [min(window) for window in rolling_window(sums, window_size)])
     plt.grid()
     plt.yscale("log")
+    plt.xlabel("Refutation Depth")
+    plt.ylabel("Number of Clauses")
+    plt.title("Breadth of the Refutation DAG")
+    plt.tight_layout();
+    plt.savefig("refutation_dag_breadth.svg")
+
+def plot_clause_depths(data):
+    fig, axs = plt.subplots(2, sharex=True, gridspec_kw={'height_ratios': [1, 3]})
+
+    # Thread ratio per depth
+    percentages = []
+    for index, at_depth in enumerate(data):
+        total = sum(at_depth)
+        assert total != 0, f"No important clauses at depth {index}"
+        percentages.append([x / total for x in at_depth])
+
+    axs[1].stackplot(np.arange(0, len(data)), np.array(percentages).transpose())
+    axs[0].set_title("Clause depths")
+    axs[1].set_xlabel("Refutation Depth")
+    # Absolute count per depth
+
+    window_size = 4
+    sums = np.array([sum(data[0])] * (window_size - 1) + [sum(at_depth) for at_depth in data])
+    axs[0].plot(np.arange(0, len(data)), [min(window) for window in rolling_window(sums, window_size)])
+    axs[0].grid()
+    axs[0].set_yscale("log")
+    plt.tight_layout();
     plt.savefig("clause_depths.svg")
 
 # plot_import_generations(data)
