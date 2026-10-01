@@ -95,6 +95,7 @@ pub(crate) fn depths(proof_directory: impl AsRef<Path>) -> anyhow::Result<()> {
     };
 
     // Run an iterator until it needs an import that we do not yet have info for.
+    let mut dag_volume = 0;
     while let Some(usable_iterator_index) = state.find_iterator_that_can_continue() {
         log::info!("Continuing with Nr. {usable_iterator_index}");
         let mut did_get_blocked = false;
@@ -102,6 +103,9 @@ pub(crate) fn depths(proof_directory: impl AsRef<Path>) -> anyhow::Result<()> {
             let step = step?;
             match step {
                 Step::Add(add_step) => {
+                    if add_step.is_unsat_clause() {
+                        dag_volume = add_step.id as usize;
+                    }
                     let smallest_derived_id = *state.smallest_derived_id.get_or_insert(add_step.id);
 
                     let missing_info_for_clause = add_step
@@ -150,7 +154,21 @@ pub(crate) fn depths(proof_directory: impl AsRef<Path>) -> anyhow::Result<()> {
         fs::remove_file(&result_path)?;
     }
     let outfile = fs::File::create(&result_path)?;
-    serde_json::to_writer(outfile, &state.depths_count)?;
+    serde_json::to_writer(
+        outfile,
+        &Result {
+            thread_count: proof_files.len(),
+            volume: dag_volume,
+            depth_values: state.depths_count,
+        },
+    )?;
 
     Ok(())
+}
+
+#[derive(Serialize)]
+struct Result {
+    thread_count: usize,
+    volume: usize,
+    depth_values: Vec<Vec<usize>>,
 }
