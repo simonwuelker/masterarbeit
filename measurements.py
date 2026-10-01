@@ -4,6 +4,7 @@ from os.path import isfile, join
 import subprocess
 import json
 import shutil
+import re
 
 def problems(path):
     for filename in listdir(path):
@@ -12,14 +13,16 @@ def problems(path):
             yield full_path
 
 num_procs = os.cpu_count() // 8
-TEMP_DIR = "temp"
-MALLOB_BINARY = "~/mallob2/build/mallob"
-PROBLEMS = "tooling/instances"
+TEMP_DIR = "/nfs/home/swuelker/masterarbeit/temp"
+MALLOB = "/nfs/home/swuelker/mallob2"
+PROBLEMS = "/nfs/home/swuelker/mallob/problems/"
 result = []
 
 for index, problem in enumerate(problems(PROBLEMS)):
     # First, solve the problem
     print("Solving", problem)
+    old_cwd = os.getcwd()
+    os.chdir(MALLOB)
     command = [
         "mpirun",
         "-np",
@@ -27,7 +30,7 @@ for index, problem in enumerate(problems(PROBLEMS)):
         "--bind-to=core",
         "--map-by",
         f"ppr:{num_procs}:node:pe=4",
-        str(MALLOB_BINARY),
+        join(MALLOB, "build/mallob"),
         "-t=4",
         f"-mono={problem}",
         "-satsolver=c",
@@ -40,23 +43,30 @@ for index, problem in enumerate(problems(PROBLEMS)):
     env["RDMAV_FORK_SAFE"] = "1"
     env["NPROCS"] = str(num_procs)
 
-    child = subprocess.Popen(
+    result = subprocess.run(
         command,
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
     )
 
-    try:
-        child.wait()
-    except Exception as exc:
-        raise RuntimeError("Waiting for mallob to complete") from exc
+
+    os.chdir(old_cwd)
+
+    # Find timing in the logs
+    match = re.search(r"RESPONSE_TIME\s+#\d+\s+(\d+(?:\.\d+)?)", result.stdout)
+    if not match:
+        print("ERROR: No response time found")
+        break
+    time = float(match.group(1))
 
     # Then, reduce the proof
     proof_dir = join(TEMP_DIR, [x for x in listdir(TEMP_DIR)][0])
     print("Reducing from", proof_dir)
     destination = join(TEMP_DIR, "stripped")
-    cmd = ["cargo", "r", "-r", "--", "strip", f"{TEMP_DIR}", destination]
+    cmd = ["cargo", "r", "-r", "--", "strip", f"{proof_dir}", destination]
     print("Invoking", cmd)
     child = subprocess.Popen(
         cmd,
@@ -68,22 +78,25 @@ for index, problem in enumerate(problems(PROBLEMS)):
         raise RuntimeError("Waiting for proof stripping") from exc
 
     # Then, run the depth checker
-    child = subprocess.Popen(
-        ["cargo", "r", "-r", "--", "depth", destination],
+    cmd = ["cargo", "r", "-r", "--", "depth", destination]
+    print("Invoking", cmd)
+    child = subprocess.Popen(cmd
     )
 
     # Read its output file
+    print("read json")
     with open("out.json", "r") as result_file:
         data = json.load(result_file)
 
     data["problem"] = problem
+    data["time"] = time
 
     result.append(data)
 
     print("Removing results")
     shutil.rmtree(TEMP_DIR)
 
-    if len(result) > 9:
+    if len(result) >= 9:
         break;
 
 print("Writing result file")
