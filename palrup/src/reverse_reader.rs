@@ -8,8 +8,8 @@ use std::{
     iter::Rev,
 };
 
-use crate::palrup::{self, Id, Step};
 use anyhow::{Context, Result};
+use palrup_io::{Id, Step};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 struct ChunkIterator<R: Read + Seek, const N: usize> {
@@ -54,13 +54,14 @@ const CHUNK_SIZE: usize = 1 << 24;
 
 pub(crate) struct ReversePalrupIterator<R: Read + Seek> {
     chunk_iterator: ChunkIterator<R, CHUNK_SIZE>,
-    remaining_items_from_current_chunk: Option<Rev<<Vec<palrup::Step> as IntoIterator>::IntoIter>>,
+    remaining_items_from_current_chunk:
+        Option<Rev<<Vec<palrup_io::Step> as IntoIterator>::IntoIter>>,
     buffer: Vec<u8>,
     remaining_stuff_to_append_to_next_chunk: Vec<u8>,
 }
 
 impl<R: Read + Seek> ReversePalrupIterator<R> {
-    pub(crate) fn next(&mut self) -> io::Result<Option<palrup::Step>> {
+    pub(crate) fn next(&mut self) -> io::Result<Option<palrup_io::Step>> {
         if let Some(remaining_items) = &mut self.remaining_items_from_current_chunk {
             if let Some(next_item) = remaining_items.next() {
                 return Ok(Some(next_item));
@@ -88,8 +89,8 @@ impl<R: Read + Seek> ReversePalrupIterator<R> {
             .last()
             .is_some_and(|byte| *byte == 0));
 
-        let steps: Result<Vec<_>> =
-            palrup::PalrupIterator::new(io::Cursor::new(&next_chunk[start_of_first_step..]))
+        let steps: io::Result<Vec<_>> =
+            palrup_io::PalrupIterator::new(io::Cursor::new(&next_chunk[start_of_first_step..]))
                 .collect();
         self.remaining_items_from_current_chunk = Some(steps.unwrap().into_iter().rev());
 

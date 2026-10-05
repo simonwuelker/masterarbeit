@@ -555,12 +555,20 @@ dependencies = [
  "env_logger",
  "growable-bloom-filter",
  "log",
+ "palrup-io",
  "rayon",
  "regex",
  "rustc-hash",
  "serde",
  "serde_json",
  "tabled",
+]
+
+[[package]]
+name = "palrup-io"
+version = "0.1.0"
+dependencies = [
+ "log",
 ]
 
 [[package]]

@@ -1,12 +1,14 @@
+//! Implements utilities for reading and writing PalRUP files.
+//!
+//! You can learn more about PalRUP here: <https://publikationen.bibliothek.kit.edu/1000196607>.
+
 use std::fs;
 use std::fs::File;
 use std::io::{self, BufReader, ErrorKind, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
-
-pub(crate) type Id = isize;
+pub type Id = isize;
 
 fn read_var_id<R>(mut reader: R) -> io::Result<Id>
 where
@@ -71,32 +73,33 @@ fn write_var_id<W: Write>(writer: W, id: Id) -> io::Result<()> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ClauseAddition {
-    pub(crate) id: Id,
-    pub(crate) literals: Vec<usize>,
-    pub(crate) hints: Vec<Id>,
+pub struct ClauseAddition {
+    pub id: Id,
+    pub literals: Vec<usize>,
+    pub hints: Vec<Id>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ClauseDeletion {
-    pub(crate) deleted_clauses: Vec<Id>,
+pub struct ClauseDeletion {
+    pub deleted_clauses: Vec<Id>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ClauseImport {
-    pub(crate) imported_clause: Id,
-    pub(crate) literals: Vec<usize>,
+pub struct ClauseImport {
+    pub imported_clause: Id,
+    pub literals: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum Step {
+pub enum Step {
     Add(ClauseAddition),
     Delete(ClauseDeletion),
     Import(ClauseImport),
 }
 
 impl ClauseAddition {
-    fn read<R>(mut reader: R) -> io::Result<Self>
+    /// Read a addition from the given reader.
+    pub fn read<R>(mut reader: R) -> io::Result<Self>
     where
         R: Read,
     {
@@ -125,7 +128,8 @@ impl ClauseAddition {
         })
     }
 
-    pub(crate) fn write<W>(&self, mut writer: W) -> io::Result<()>
+    /// Write a addition to the given writer.
+    pub fn write<W>(&self, mut writer: W) -> io::Result<()>
     where
         W: Write,
     {
@@ -144,7 +148,8 @@ impl ClauseAddition {
         Ok(())
     }
 
-    pub(crate) fn is_unsat_clause(&self) -> bool {
+    /// Return true if this clause represents a conflict, indicating the problem is unsatisfiable.
+    pub fn is_unsat_clause(&self) -> bool {
         self.literals.is_empty()
     }
 }
@@ -164,7 +169,7 @@ impl ClauseDeletion {
         Ok(ClauseDeletion { deleted_clauses })
     }
 
-    pub(crate) fn write<W>(&self, mut writer: W) -> io::Result<()>
+    pub fn write<W>(&self, mut writer: W) -> io::Result<()>
     where
         W: Write,
     {
@@ -198,7 +203,7 @@ impl ClauseImport {
         })
     }
 
-    pub(crate) fn write<W>(&self, mut writer: W) -> io::Result<()>
+    pub fn write<W>(&self, mut writer: W) -> io::Result<()>
     where
         W: Write,
     {
@@ -250,7 +255,7 @@ impl Step {
         Some(step)
     }
 
-    pub(crate) fn write<W>(&self, mut writer: W) -> io::Result<()>
+    pub fn write<W>(&self, mut writer: W) -> io::Result<()>
     where
         W: Write,
     {
@@ -273,20 +278,20 @@ impl Step {
     }
 }
 
-pub(crate) struct PalrupIterator<R: Read> {
+pub struct PalrupIterator<R: Read> {
     reader: R,
 }
 
 impl<R: Read> PalrupIterator<R> {
-    pub(crate) fn new(reader: R) -> Self {
+    pub fn new(reader: R) -> Self {
         Self { reader }
     }
 }
 
 impl PalrupIterator<BufReader<File>> {
-    pub(crate) fn for_file<P: AsRef<Path>>(file: P) -> Result<Self> {
-        let file = File::open(&file)
-            .with_context(|| format!("Failed to read proof from {}", file.as_ref().display()))?;
+    /// Automatically create a buffered palrup reader for the given file.
+    pub fn for_file<P: AsRef<Path>>(file: P) -> io::Result<Self> {
+        let file = File::open(&file)?;
         let reader = BufReader::new(file);
 
         Ok(Self::new(reader))
@@ -294,7 +299,7 @@ impl PalrupIterator<BufReader<File>> {
 }
 
 impl<R: Read> Iterator for PalrupIterator<R> {
-    type Item = Result<Step>;
+    type Item = io::Result<Step>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match Step::read(&mut self.reader)? {
@@ -307,7 +312,7 @@ impl<R: Read> Iterator for PalrupIterator<R> {
 /// Returns an ordered list of paths to the PalRUP files of a proof.
 ///
 /// The files are ordered by the ID of the solver that created them.
-pub(crate) fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBuf>> {
+pub fn find_proof_files<P: AsRef<Path>>(proof_directory: P) -> io::Result<Vec<PathBuf>> {
     let mut proof_files = Vec::new();
 
     for entry in fs::read_dir(&proof_directory)? {

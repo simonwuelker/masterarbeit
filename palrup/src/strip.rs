@@ -7,10 +7,10 @@ use growable_bloom_filter::GrowableBloom;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use rustc_hash::FxHashSet;
 
-use crate::palrup::Step::Import;
-use crate::palrup::{find_proof_files, Id, PalrupIterator, Step};
 use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::StripCommandArgs;
+use palrup_io::Step::Import;
+use palrup_io::{find_proof_files, Id, PalrupIterator, Step};
 
 pub(crate) fn strip_command(args: &StripCommandArgs) -> anyhow::Result<()> {
     let proof_files =

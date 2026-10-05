@@ -1,5 +1,5 @@
-use crate::palrup::{PalrupIterator, Step};
 use crate::PrintCommandArgs;
+use palrup_io::{PalrupIterator, Step};
 
 pub(crate) fn print_command(args: &PrintCommandArgs) -> anyhow::Result<()> {
     let iterator = PalrupIterator::for_file(&args.file)?;

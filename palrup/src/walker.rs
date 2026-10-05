@@ -3,7 +3,7 @@ use std::collections::hash_map::Entry;
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 
-use crate::palrup::{ClauseAddition, ClauseImport, Id};
+use palrup_io::{ClauseAddition, ClauseImport, Id};
 
 pub(crate) const TRACK_DERIVATIVES_UP_TO: u8 = 5;
 

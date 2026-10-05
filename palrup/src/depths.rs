@@ -4,7 +4,7 @@ use std::path::Path;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 
-use crate::palrup::{find_proof_files, ClauseAddition, Id, PalrupIterator, Step};
+use palrup_io::{find_proof_files, ClauseAddition, Id, PalrupIterator, Step};
 
 #[derive(Default)]
 struct State {

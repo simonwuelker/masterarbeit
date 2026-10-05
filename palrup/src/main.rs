@@ -16,7 +16,6 @@ mod evaluation;
 mod import_log_parser;
 #[cfg(feature = "overlap")]
 mod overlap;
-mod palrup;
 mod print;
 mod reverse_reader;
 mod strip;
@@ -26,9 +25,9 @@ use crate::bucket_store::{Average, BucketStore, Sum};
 use crate::evaluation::histogram_2d::{Histogram2D, Histogram2DSet};
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{CovarianceSet, MetricSet};
-use crate::palrup::{find_proof_files, Id, PalrupIterator, Step};
 use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
+use palrup_io::{find_proof_files, Id, PalrupIterator, Step};
 
 /// Transpiler from PalRup proof files to edge lists
 #[derive(Parser, Debug)]

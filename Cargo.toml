@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["palrup"]
+members = ["palrup", "palrup-io"]
+
+[workspace.dependencies]
+palrup-io = { path = "palrup-io" }
+log = "0.4.33"

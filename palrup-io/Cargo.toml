@@ -1,0 +1,11 @@
+[package]
+name = "palrup-io"
+version = "0.1.0"
+edition = "2024"
+authors = ["Simon Wülker"]
+description = "Utilities for reading and writing PalRUP files"
+license = "MIT"
+repository = "https://github.com/simonwuelker/masterarbeit"
+
+[dependencies]
+log = { workspace = true }
