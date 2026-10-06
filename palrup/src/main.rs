@@ -508,7 +508,6 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
                 "Mallob invocation failed with exit code {:?}",
                 output.status.code()
             );
-            return Err(anyhow!("Mallob invocation failed"));
         }
 
         // Find the directory containing the solver traces (no idea how mallob determines that)
