@@ -149,7 +149,7 @@ fn main() -> Result<()> {
         Commands::Local(local_args) => {
             log::info!("Using local mode");
             let stdout_capture = fs::read_to_string(&local_args.stdout_capture)?;
-            let result = local_main(&local_args.proof_directory, &stdout_capture)?;
+            let result = local_main(&local_args.proof_directory, &stdout_capture, None)?;
 
             let result_path = "out.json";
             if fs::exists(&result_path)? {
@@ -213,10 +213,15 @@ fn main() -> Result<()> {
         }
     }
 
+    log::info!("Exiting happily");
     Ok(())
 }
 
-fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnalysisResult> {
+fn local_main(
+    proof_directory: &Path,
+    stdout_capture: &str,
+    problem_name: Option<String>,
+) -> Result<SingleAnalysisResult> {
     // Walk dir for solver processes
     let mut proof_files = find_proof_files(proof_directory)?;
 
@@ -364,9 +369,20 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
 
     result_data.unused_imports.sort_unstable();
 
+    // Find imports
     let imports_at_clause_ids = import_log_parser::parse(stdout_capture);
 
+    // Find time to solve
+    let re = regex::Regex::new(r"RESPONSE_TIME\s+#\d+\s+(\d+(?:\.\d+)?)").unwrap();
+    let time = if let Some(caps) = re.captures(stdout_capture) {
+        caps[1].parse().unwrap()
+    } else {
+        f64::NAN
+    };
+
     Ok(SingleAnalysisResult {
+        problem_name,
+        time,
         covariance_set,
         result_data,
         histogram_2d_set,
@@ -380,6 +396,11 @@ fn local_main(proof_directory: &Path, stdout_capture: &str) -> Result<SingleAnal
 
 #[derive(Serialize)]
 struct SingleAnalysisResult {
+    /// Identifies the problem whose solution is being analyzed.
+    ///
+    /// Only present in `server` mode.
+    problem_name: Option<String>,
+    time: f64,
     #[serde(skip)]
     covariance_set: CovarianceSet,
     result_data: ResultData,
@@ -391,7 +412,6 @@ struct SingleAnalysisResult {
     imports_at_clause_ids: Vec<import_log_parser::ImportStep>,
 }
 
-const CRITICAL_CLAUSES_PER_THREAD_OVER_TIME_GRANULARITY: usize = 1024;
 const NUM_PROBLEMS_TO_ANALYZE: usize = 10;
 
 #[derive(Serialize)]
@@ -506,7 +526,12 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
         log::debug!("Proof was stored in {}", proof_directory.display());
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let result = local_main(&proof_directory, &stdout).context("Analyzing proof files")?;
+        let result = local_main(
+            &proof_directory,
+            &stdout,
+            Some(problem.as_os_str().to_string_lossy().to_string()),
+        )
+        .context("Analyzing proof files")?;
         covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set.clone());
         single_results.push(result);
 
