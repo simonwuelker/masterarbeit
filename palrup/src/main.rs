@@ -260,8 +260,8 @@ fn local_main(
         log::error!("None of the proof files found a UNSAT clause");
         return Err(anyhow!("No UNSAT clause found"));
     };
-    // We always want roughly a thousand buckets
-    let bucket_size_for_stacked_plots = id_of_unsat_clause as usize / 1000;
+    // We always want roughly 8 thousand buckets
+    let bucket_size_for_stacked_plots = id_of_unsat_clause as usize / 8000;
     log::debug!("Inferred bucket size for stacked plots: {bucket_size_for_stacked_plots:?}");
 
     log::info!("Constructing reverse DAG...");
