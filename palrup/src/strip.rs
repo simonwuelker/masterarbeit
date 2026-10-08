@@ -101,7 +101,7 @@ where
     );
 
     fs::create_dir_all(output_file.as_ref().parent().unwrap())?;
-    let mut iterator = PalrupIterator::for_file(input_file)?;
+    let iterator = PalrupIterator::for_file(input_file)?;
     let mut output_file = BufWriter::new(fs::File::create_new(output_file)?);
 
     let mut have_written = FxHashSet::default();

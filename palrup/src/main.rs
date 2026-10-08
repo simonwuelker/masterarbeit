@@ -6,14 +6,15 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{self, Path, PathBuf};
-use std::process::Stdio;
 use std::time::Instant;
-use std::{env, fs, process};
+use std::{env, fs};
 
 mod bucket_store;
 mod depths;
+mod depthvolumetime;
 mod evaluation;
 mod import_log_parser;
+mod mallob_interface;
 #[cfg(feature = "overlap")]
 mod overlap;
 mod print;
@@ -25,6 +26,7 @@ use crate::bucket_store::{Average, BucketStore, Sum};
 use crate::evaluation::histogram_2d::{Histogram2D, Histogram2DSet};
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{CovarianceSet, MetricSet};
+use crate::mallob_interface::invoke_mallob;
 use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 use palrup_io::{find_proof_files, Id, PalrupIterator, Step};
@@ -46,6 +48,7 @@ enum Commands {
     Strip(StripCommandArgs),
     Overlap(OverlapCommandArgs),
     Depth(DepthCommandArgs),
+    DepthVolumeTime(DepthVolumeTimeCommandArgs),
 }
 
 #[derive(Args, Debug)]
@@ -133,6 +136,13 @@ struct OverlapCommandArgs {
     second: usize,
 }
 
+#[derive(Args, Debug)]
+struct DepthVolumeTimeCommandArgs {
+    problem_directory: PathBuf,
+    temp_directory: PathBuf,
+    mallob_binary: PathBuf,
+}
+
 #[derive(Debug, Default, Serialize)]
 struct ResultData {
     per_file: HashMap<PathBuf, PerFileInfo>,
@@ -200,7 +210,7 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            let mut proof_files = find_proof_files(&overlap_args.proof_directory)?;
+            let proof_files = find_proof_files(&overlap_args.proof_directory)?;
 
             #[cfg(feature = "overlap")]
             overlap::overlap(
@@ -209,7 +219,17 @@ fn main() -> Result<()> {
             )?;
         }
         Commands::Depth(depth_args) => {
-            depths::depths(&depth_args.proof_directory)?;
+            let result = depths::depths(&depth_args.proof_directory)?;
+
+            let result_path = "out.json";
+            if fs::exists(&result_path)? {
+                fs::remove_file(&result_path)?;
+            }
+            let outfile = fs::File::create(&result_path)?;
+            serde_json::to_writer(outfile, &result)?;
+        }
+        Commands::DepthVolumeTime(depth_volume_time_args) => {
+            depthvolumetime::depthvolumetimemain(depth_volume_time_args)?;
         }
     }
 
@@ -372,17 +392,9 @@ fn local_main(
     // Find imports
     let imports_at_clause_ids = import_log_parser::parse(stdout_capture);
 
-    // Find time to solve
-    let re = regex::Regex::new(r"RESPONSE_TIME\s+#\d+\s+(\d+(?:\.\d+)?)").unwrap();
-    let time = if let Some(caps) = re.captures(stdout_capture) {
-        caps[1].parse().unwrap()
-    } else {
-        f64::NAN
-    };
-
     Ok(SingleAnalysisResult {
         problem_name,
-        time,
+        time: f64::NAN, // Will be filled in later
         covariance_set,
         result_data,
         histogram_2d_set,
@@ -477,60 +489,19 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
         }
 
         // Run mallob on that problem
-        let mut command = process::Command::new("mpirun".to_owned());
-        command
-            .env("RDMAV_FORK_SAFE", "1")
-            .env("NPROCS", num_procs.to_string())
-            .args([
-                "-np".to_string(),
-                num_procs.to_string(),
-                "--bind-to=core".to_string(),
-                "--map-by".to_string(),
-                format!("ppr:{num_procs}:node:pe=4"),
-                format!("{}", mallob_binary.display()),
-                "-t=4".to_string(),
-                format!("-mono={}", problem.display()),
-                "-satsolver=c".to_string(),
-                "--palrup".to_string(),
-                format!("-proof-dir={}", temp_dir.display()),
-            ])
-            .stdout(Stdio::piped());
-        log::debug!("Invoking {command:?}");
-        let child_handle = command.spawn()?;
+        let mallob_result = invoke_mallob(&mallob_binary, &problem, &temp_dir)?;
 
-        let output = child_handle
-            .wait_with_output()
-            .context("Waiting for mallob to complete")?;
-        fs::write(temp_dir.join("stdout"), &output.stdout).context("Log mallob stdout")?;
-        fs::write(temp_dir.join("stderr"), &output.stderr).context("Log mallob stderr")?;
-        if !output.status.success() {
-            log::error!(
-                "Mallob invocation failed with exit code {:?}",
-                output.status.code()
-            );
-        }
+        fs::write(temp_dir.join("stdout"), &mallob_result.stdout).context("Log mallob stdout")?;
+        fs::write(temp_dir.join("stderr"), &mallob_result.stderr).context("Log mallob stderr")?;
 
-        // Find the directory containing the solver traces (no idea how mallob determines that)
-        let mut proof_directory = None;
-        for entry in fs::read_dir(temp_dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                proof_directory = Some(entry.path());
-            }
-        }
-        let Some(proof_directory) = proof_directory else {
-            log::error!("Did not find any proof files");
-            return Err(anyhow!("Did not find any proof files"));
-        };
-        log::debug!("Proof was stored in {}", proof_directory.display());
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let result = local_main(
-            &proof_directory,
+        let stdout = String::from_utf8_lossy(&mallob_result.stdout);
+        let mut result = local_main(
+            &mallob_result.proof_directory,
             &stdout,
             Some(problem.as_os_str().to_string_lossy().to_string()),
         )
         .context("Analyzing proof files")?;
+        result.time = mallob_result.compute_time;
         covariance_set = CovarianceSet::combine(covariance_set, result.covariance_set.clone());
         single_results.push(result);
 

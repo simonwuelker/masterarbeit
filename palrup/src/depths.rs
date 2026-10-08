@@ -77,7 +77,7 @@ impl State {
     }
 }
 
-pub(crate) fn depths(proof_directory: impl AsRef<Path>) -> anyhow::Result<()> {
+pub(crate) fn depths(proof_directory: impl AsRef<Path>) -> anyhow::Result<DepthResult> {
     let proof_files = find_proof_files(proof_directory)?;
 
     let mut iterators = Vec::with_capacity(proof_files.len());
@@ -149,26 +149,16 @@ pub(crate) fn depths(proof_directory: impl AsRef<Path>) -> anyhow::Result<()> {
         }
     }
 
-    let result_path = "out.json";
-    if fs::exists(&result_path)? {
-        fs::remove_file(&result_path)?;
-    }
-    let outfile = fs::File::create(&result_path)?;
-    serde_json::to_writer(
-        outfile,
-        &Result {
-            thread_count: proof_files.len(),
-            volume: dag_volume,
-            depth_values: state.depths_count,
-        },
-    )?;
-
-    Ok(())
+    Ok(DepthResult {
+        thread_count: proof_files.len(),
+        volume: dag_volume,
+        depth_values: state.depths_count,
+    })
 }
 
 #[derive(Serialize)]
-struct Result {
-    thread_count: usize,
-    volume: usize,
-    depth_values: Vec<Vec<usize>>,
+pub(crate) struct DepthResult {
+    pub(crate) thread_count: usize,
+    pub(crate) volume: usize,
+    pub(crate) depth_values: Vec<Vec<usize>>,
 }

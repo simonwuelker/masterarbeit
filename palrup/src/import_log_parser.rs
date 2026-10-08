@@ -1,8 +1,6 @@
 use regex::Regex;
 use serde::Serialize;
-use std::fs;
 use std::mem;
-use std::path::Path;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct ImportStep {
