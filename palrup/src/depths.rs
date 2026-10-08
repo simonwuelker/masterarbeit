@@ -105,9 +105,7 @@ pub(crate) fn depths(proof_directory: impl AsRef<Path>) -> anyhow::Result<DepthR
             let step = step?;
             match step {
                 Step::Add(add_step) => {
-                    if add_step.is_unsat_clause() {
-                        dag_volume = add_step.id as usize;
-                    }
+                    dag_volume += 1;
                     let smallest_derived_id = *state.smallest_derived_id.get_or_insert(add_step.id);
 
                     let missing_info_for_clause = add_step

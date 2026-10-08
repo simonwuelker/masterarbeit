@@ -6,13 +6,20 @@ use anyhow::{anyhow, Context};
 use growable_bloom_filter::GrowableBloom;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use rustc_hash::FxHashSet;
+use serde::Serialize;
 
 use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::StripCommandArgs;
 use palrup_io::Step::Import;
 use palrup_io::{find_proof_files, Id, PalrupIterator, Step};
 
-pub(crate) fn strip_command(args: &StripCommandArgs) -> anyhow::Result<()> {
+#[derive(Serialize)]
+pub(crate) struct StripResult {
+    pub(crate) number_of_clauses_originally: usize,
+    pub(crate) clauses_dropped: usize,
+}
+
+pub(crate) fn strip_command(args: &StripCommandArgs) -> anyhow::Result<StripResult> {
     let proof_files =
         find_proof_files(&args.proof_directory).context("Failed to enumerate proof files")?;
 
@@ -47,10 +54,14 @@ pub(crate) fn strip_command(args: &StripCommandArgs) -> anyhow::Result<()> {
     let mut reverse_dag_iterator = ReverseDAGIterator::new(&info, &proof_files);
 
     let mut bloom_filter = GrowableBloom::new(0.01, largest_derived_id as usize);
+    let mut original_clauses = 0;
+    let mut clauses_dropped = 0;
     while let Some(next) = reverse_dag_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
+                original_clauses += 1;
                 if next.is_critical {
+                    clauses_dropped += 1;
                     bloom_filter.insert(add_step.id);
                 }
             }
@@ -81,7 +92,10 @@ pub(crate) fn strip_command(args: &StripCommandArgs) -> anyhow::Result<()> {
             .unwrap();
         });
 
-    Ok(())
+    Ok(StripResult {
+        number_of_clauses_originally: original_clauses,
+        clauses_dropped,
+    })
 }
 
 fn strip_single_file<P1, P2>(

@@ -2,6 +2,7 @@ use crate::depths;
 use crate::depths::DepthResult;
 use crate::mallob_interface::invoke_mallob;
 use crate::strip;
+use crate::strip::StripResult;
 use crate::DepthVolumeTimeCommandArgs;
 use crate::StripCommandArgs;
 
@@ -72,7 +73,7 @@ pub(crate) fn depthvolumetimemain(
 
         // Strip the resulting proof
         log::info!("Stripping proof in {}", result.proof_directory.display());
-        strip::strip_command(&StripCommandArgs {
+        let strip_result = strip::strip_command(&StripCommandArgs {
             proof_directory: result.proof_directory.clone(),
             stripped_directory: stripped_directory.clone(),
             error_probability: 0.01,
@@ -90,6 +91,7 @@ pub(crate) fn depthvolumetimemain(
             problem: problem.display().to_string(),
             time: result.compute_time,
             depth_result: depth,
+            strip_result,
         });
 
         log::info!("Saving checkpoint to {}", checkpoint_file.display());
@@ -113,4 +115,6 @@ pub(crate) struct SingleAnalysisResult {
     time: f64,
     #[serde(flatten)]
     depth_result: DepthResult,
+    #[serde(flatten)]
+    strip_result: StripResult,
 }
