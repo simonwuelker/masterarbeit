@@ -259,12 +259,13 @@ def resample_1d(y, m):
     return np.interp(x_new, x_old, y)
 
 def plot_share_of_important_clauses_per_thread_over_time(data):
+    raw_data = data["critical_clauses_per_thread_over_time"]["buckets"]
     n_threads = len(data["critical_clauses_per_thread_over_time"]["buckets"])
     print(f"{n_threads} threads")
 
     GRANULARITY = data["stacked_plot_bucket_size"]
     def turn_to_percentages(data):
-        longest_sequence = max(len(data[thread_id]) for thread_id in range(n_threads))
+        longest_sequence = max(len(configuration) for configuration in data)
         x_axis_values = [GRANULARITY * i for i in range(longest_sequence)]
 
         # Compute sum per bucket
@@ -273,7 +274,7 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
         while True:
             sum = 0
             one_thread_contributed = False
-            for thread_id in range(n_threads):
+            for thread_id in range(len(data)):
                 if len(data[thread_id]) > i:
                     sum += data[thread_id][i]
                     one_thread_contributed = True
@@ -286,7 +287,7 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
 
 
         y_axis_values = {}
-        for thread_id in range(n_threads):
+        for thread_id in range(len(data)):
             thread_data = data[thread_id]
             padding_needed = longest_sequence - len(thread_data)
             padded_data = np.pad(thread_data, (0, padding_needed), mode="constant")
@@ -298,15 +299,16 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
     # Preprocess data such that it is aligned on imports
 
     print(GRANULARITY)
-    raw_data = data["critical_clauses_per_thread_over_time"]["buckets"]
+
     import_epochs = data["imports_at_clause_ids"]
 
     processed_so_far = [0] * n_threads
+    print(import_epochs[0]["lrat_ids"][0])
     reference_duration = import_epochs[0]["lrat_ids"][0] // GRANULARITY
     resampled_data = [np.array([])] * n_threads
-    print(f"Determined that a import epoch should take around {reference_duration} clauses")
+    print(f"Determined that a import epoch should take around {reference_duration}px")
 
-    xticks = []
+    xticks = [0]
     for index, import_epoch in enumerate(import_epochs):
         # We add 1 on the index here because we obviously don't communicate
         # at timestamp zero.
@@ -325,20 +327,34 @@ def plot_share_of_important_clauses_per_thread_over_time(data):
     # Append any trailing data after the last import
     for thread_id in range(n_threads):
         data_for_thread = raw_data[thread_id]
-        resampled_data[thread_id] = np.concatenate([resampled_data[thread_id], data_for_thread[processed_so_far[thread_id]:]]);
+        print("Trailing", len(data_for_thread[processed_so_far[thread_id]:]))
+        # resampled_data[thread_id] = np.concatenate([resampled_data[thread_id], data_for_thread[processed_so_far[thread_id]:]]);
+        # print(len(resampled_data[thread_id]))
+        pass
 
-    x_axis_values, y_axis_values, sums = turn_to_percentages(resampled_data)
+    # Sum by configuration
+    by_configuration = []
+    for thread_id in range(n_threads):
+        if thread_id < 10:
+            by_configuration.append(resampled_data[thread_id])
+        else:
+            by_configuration[thread_id % 10] += resampled_data[thread_id]
+    print(len(by_configuration))
+    x_axis_values, y_axis_values, sums = turn_to_percentages(by_configuration)
 
 
-    fig, axs = plt.subplots(5, figsize = (10, 14))
-    axs[0].stackplot(x_axis_values, y_axis_values.values(),
+    # fig, axs = plt.subplots(1, figsize = (10, 14))
+    plt.stackplot(x_axis_values, y_axis_values.values(),
                 labels=y_axis_values.keys(), alpha=0.8)
-    axs[0].legend(loc='upper left', reverse=True)
-    axs[0].set_title('Share of total important clauses per thread over time')
-    axs[0].set_xlabel('Clause ID')
-    axs[0].set_ylabel('% of important clauses contributed by this thread')
-    axs[0].get_legend().remove();
-    axs[0].set_xticks(xticks)
+    plt.legend(loc='upper left', reverse=True)
+    plt.title('Share of total clauses refutation DAG per configuration over time')
+    plt.xlabel('Communication epoch')
+    plt.ylabel('% of important clauses contributed')
+    plt.legend().remove();
+    x_labels = [str(i) for i in range(len(xticks))]
+    plt.xticks(xticks, labels=x_labels)
+    plt.savefig("share_of_important_clauses_over_time.svg")
+    return
     print("xticks", xticks)
 
     # print([len(y_axis_values[t]) for t in range(n_threads)])
@@ -403,6 +419,27 @@ def plot_contributions_over_time(data):
     plt.xticks(x)
     plt.tight_layout();
 
+def plot_contributions_over_time_single(data):
+    contributions_per_configuration = [0] * 10
+    print(data.keys())
+    n_threads = 0
+    for data in data["single_results"]:
+        data = data["critical_clauses_per_thread_over_time"]["buckets"]
+        n_threads = len(data)
+
+        for n in range((n_threads // 10) * 10):
+            contributions_per_configuration[n % 10] += sum(data[n])
+    colors = [plt.cm.tab10.colors[i] for i in range(10)]
+    contributions = [x / sum(contributions_per_configuration) for x in contributions_per_configuration]
+    plt.title("Share of contributions by each configurations")
+    plt.bar([x for x in range(10)], contributions,color=colors)
+    plt.xticks([x for x in range(10)])
+    plt.hlines(y=[0.1], xmin = 0, xmax = 10, colors=['g'], linestyles=['--'])
+    plt.savefig("share_of_contributions_by_each_configuration.svg")
+    plt.xlabel("Configuration ID")
+    plt.ylabel("Share of refutation DAG")
+    plt.tight_layout();
+
 def rolling_window(a, window):
     shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
     strides = a.strides + (a.strides[-1],)
@@ -443,11 +480,32 @@ def plot_clause_depths(data):
     plt.tight_layout();
     plt.savefig("clause_depths.svg")
 
+# https://numpy.org/doc/stable/reference/generated/numpy.linalg.lstsq.html
+def linreg(x, y):
+    A = np.vstack([x, np.ones(len(x))]).T
+    return np.linalg.lstsq(A, y)[0]
+
+def plot_depth_volume_time_correlations(data):
+    print(data[3].keys())
+    x = np.array([single_result["volume"] for single_result in data])
+    y = np.array([single_result["time"] for single_result in data])
+    plt.scatter(x, y, marker="x", label="Observed Data")
+    plt.ylabel("time (seconds)")
+    plt.xlabel("volume (clauses)")
+
+    a, b = linreg(x, y)
+    plt.plot(x, a*x + b, 'r', label='Fitted line')
+    plt.legend()
+
+    for i in range(len(data)):
+        plt.annotate(data[i]["problem"].split("-")[1], (x[i], y[i] + 2), ha="center", va="bottom")
+    plt.savefig("depth_volume_time.svg")
+
 # plot_import_generations(data)
 # plot_unused_imports_per_generation(data)
 # plot_histograms(data)
 # plot_2d_histograms(data)
-# plot_share_of_important_clauses_per_thread_over_time(data["single_results"][0])
+# plot_share_of_important_clauses_per_thread_over_time(data["single_results"][4])
 # plot_share_of_important_clauses_per_thread_over_time(data)
 
 
@@ -458,6 +516,8 @@ def plot_clause_depths(data):
 
 # plot_share_of_important_clauses_per_thread_over_time(data)
 # plot_contributions_over_time(data)
-plot_clause_depths(data)
+# plot_clause_depths(data)
+# plot_contributions_over_time_single(data)
+plot_depth_volume_time_correlations(data)
 if args.show_plots:
     plt.show()
