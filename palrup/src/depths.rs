@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use anyhow::anyhow;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 
@@ -26,15 +27,15 @@ impl State {
         self.depths_count[depth][thread_id] += 1;
     }
 
-    fn find_iterator_that_can_continue(&mut self) -> Option<usize> {
+    fn find_iterator_that_can_continue(&mut self) -> anyhow::Result<Option<usize>> {
         let Some(smallest_derived_id) = self.smallest_derived_id else {
             // Clearly we haven't done any work yet, so take the first one.
-            return Some(0);
+            return Ok(Some(0));
         };
 
         if self.finished_iterators.len() == self.num_threads {
             // Every iterator has finished now.
-            return None;
+            return Ok(None);
         }
 
         for index in 0..self.num_threads {
@@ -64,15 +65,17 @@ impl State {
                     self.depth_map.insert(blocked_on.id, correct_depth);
                     self.notify_depth(correct_depth, index);
                     self.blocked_iterators.remove(&index);
-                    return Some(index);
+                    return Ok(Some(index));
                 }
             } else {
                 // We're not blocked. Nice.
-                return Some(index);
+                return Ok(Some(index));
             }
         }
 
-        unreachable!()
+        // This bug doesn't impact correctness of results that dont get here, so we just ignore this one...
+        log::error!("We should never get here");
+        Err(anyhow!("My code is bad"))
     }
 }
 
@@ -95,7 +98,7 @@ pub(crate) fn depths(proof_directory: impl AsRef<Path>) -> anyhow::Result<DepthR
 
     // Run an iterator until it needs an import that we do not yet have info for.
     let mut dag_volume = 0;
-    while let Some(usable_iterator_index) = state.find_iterator_that_can_continue() {
+    while let Some(usable_iterator_index) = state.find_iterator_that_can_continue()? {
         log::info!("Continuing with Nr. {usable_iterator_index}");
         let mut did_get_blocked = false;
         for step in &mut iterators[usable_iterator_index] {

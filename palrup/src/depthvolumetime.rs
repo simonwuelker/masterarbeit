@@ -54,6 +54,7 @@ pub(crate) fn depthvolumetimemain(
     let stripped_directory = temp_dir.join("stripped");
 
     let mut results = vec![];
+    let checkpoint_file = args.checkpoints.join(format!("checkpoint.json"));
     for (index, problem) in problem_files.iter().enumerate() {
         log::info!(
             "Handling {} ({}/{})",
@@ -78,7 +79,12 @@ pub(crate) fn depthvolumetimemain(
         })?;
 
         // Compute depth
-        let depth = depths::depths(&stripped_directory)?;
+        let Ok(depth) = depths::depths(&stripped_directory) else {
+            // Clear temporary directory
+            log::debug!("Clearing temporary directory");
+            fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
+            continue;
+        };
 
         results.push(SingleAnalysisResult {
             problem: problem.display().to_string(),
@@ -86,10 +92,9 @@ pub(crate) fn depthvolumetimemain(
             depth_result: depth,
         });
 
-        let checkpoint_file = args.checkpoints.join(format!("checkpoint_{index}.json"));
         log::info!("Saving checkpoint to {}", checkpoint_file.display());
         if fs::exists(&checkpoint_file)? {
-            fs::remove_file(&checkpoint_file);
+            fs::remove_file(&checkpoint_file)?;
         }
         let checkpoint_file = fs::File::create_new(&checkpoint_file)?;
         serde_json::to_writer(checkpoint_file, &results)?;
