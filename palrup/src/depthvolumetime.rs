@@ -81,7 +81,7 @@ pub(crate) fn depthvolumetimemain(
         let depth = depths::depths(&stripped_directory)?;
 
         results.push(SingleAnalysisResult {
-            problem: problem.as_os_str().display().to_string(),
+            problem: problem.display().to_string(),
             time: result.compute_time,
             depth_result: depth,
         });
