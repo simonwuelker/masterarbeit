@@ -67,7 +67,7 @@ pub(crate) fn depthvolumetimemain(
             fs::create_dir(temp_dir).context("Creating temporary directory")?;
         }
 
-        let result = invoke_mallob(&args.mallob_binary, problem, temp_dir)?;
+        let result = invoke_mallob(&args.mallob, problem, temp_dir)?;
 
         // Strip the resulting proof
         log::info!("Stripping proof in {}", result.proof_directory.display());

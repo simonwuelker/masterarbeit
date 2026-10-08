@@ -1,3 +1,4 @@
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -19,14 +20,17 @@ pub(crate) struct MallobInvocationResult {
 }
 
 pub(crate) fn invoke_mallob(
-    mallob_binary: impl AsRef<Path>,
+    mallob_dir: impl AsRef<Path>,
     problem: impl AsRef<Path>,
     temp_dir: impl AsRef<Path>,
 ) -> anyhow::Result<MallobInvocationResult> {
+    let old_directory = env::current_dir()?;
+    env::set_current_dir(&mallob_dir)?;
+
+    let mallob_binary = mallob_dir.as_ref().join("build/mallob");
     let num_threads = std::thread::available_parallelism()?.get();
     let num_procs = num_threads / 8;
 
-    let mallob_binary = mallob_binary.as_ref();
     let problem = problem.as_ref();
     let temp_dir = temp_dir.as_ref();
 
@@ -83,6 +87,8 @@ pub(crate) fn invoke_mallob(
     } else {
         f64::NAN
     };
+
+    env::set_current_dir(old_directory)?;
 
     Ok(MallobInvocationResult {
         stdout: output.stdout,

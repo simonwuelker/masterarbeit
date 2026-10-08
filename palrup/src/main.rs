@@ -140,7 +140,7 @@ struct OverlapCommandArgs {
 struct DepthVolumeTimeCommandArgs {
     problem_directory: PathBuf,
     temp_directory: PathBuf,
-    mallob_binary: PathBuf,
+    mallob: PathBuf,
     checkpoints: PathBuf,
 }
 
@@ -185,12 +185,7 @@ fn main() -> Result<()> {
                     .context("Absolutizing mallob binary path")?;
             }
 
-            // FIXME: Mallob seems to want us to be in its directory when we invoke it.
-            // Thats silly.
-            let old_directory = env::current_dir()?;
-            env::set_current_dir(&server_args.mallob)?;
             let result = server_main(server_args)?;
-            env::set_current_dir(old_directory)?;
 
             let result_path = "out.json";
             if fs::exists(&result_path)? {
@@ -229,7 +224,9 @@ fn main() -> Result<()> {
             let outfile = fs::File::create(&result_path)?;
             serde_json::to_writer(outfile, &result)?;
         }
-        Commands::DepthVolumeTime(depth_volume_time_args) => {
+        Commands::DepthVolumeTime(mut depth_volume_time_args) => {
+            depth_volume_time_args.mallob = path::absolute(depth_volume_time_args.mallob)
+                .context("Absolutizing mallob path")?;
             depthvolumetime::depthvolumetimemain(depth_volume_time_args)?;
         }
     }
@@ -475,9 +472,6 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
 
     let num_threads = std::thread::available_parallelism()?.get();
     let num_procs = num_threads / 8;
-    let mallob_binary = args
-        .mallob_binary
-        .unwrap_or_else(|| args.mallob.join("build/mallob"));
     let mut covariance_set = CovarianceSet::default();
     let mut single_results: Vec<SingleAnalysisResult> = Default::default();
     log::debug!("Using {num_threads} mallob solver threads");
@@ -490,7 +484,7 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
         }
 
         // Run mallob on that problem
-        let mallob_result = invoke_mallob(&mallob_binary, &problem, &temp_dir)?;
+        let mallob_result = invoke_mallob(&args.mallob, &problem, &temp_dir)?;
 
         fs::write(temp_dir.join("stdout"), &mallob_result.stdout).context("Log mallob stdout")?;
         fs::write(temp_dir.join("stderr"), &mallob_result.stderr).context("Log mallob stderr")?;
