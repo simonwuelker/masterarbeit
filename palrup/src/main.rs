@@ -141,6 +141,7 @@ struct DepthVolumeTimeCommandArgs {
     problem_directory: PathBuf,
     temp_directory: PathBuf,
     mallob_binary: PathBuf,
+    checkpoints: PathBuf,
 }
 
 #[derive(Debug, Default, Serialize)]

@@ -86,6 +86,14 @@ pub(crate) fn depthvolumetimemain(
             depth_result: depth,
         });
 
+        let checkpoint_file = args.checkpoints.join(format!("checkpoint_{index}.json"));
+        log::info!("Saving checkpoint to {}", checkpoint_file.display());
+        if fs::exists(&checkpoint_file)? {
+            fs::remove_file(&checkpoint_file);
+        }
+        let checkpoint_file = fs::File::create_new(&checkpoint_file)?;
+        serde_json::to_writer(checkpoint_file, &results)?;
+
         // Clear temporary directory
         log::debug!("Clearing temporary directory");
         fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
