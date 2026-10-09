@@ -21,3 +21,4 @@ serde = { version = "1.0.228", features = ["serde_derive"] }
 serde_json = "1.0.150"
 tabled = "0.18.0"
 palrup-io = { workspace = true }
+gethostname = "1.1.0"

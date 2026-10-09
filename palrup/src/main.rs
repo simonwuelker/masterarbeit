@@ -429,6 +429,7 @@ const NUM_PROBLEMS_TO_ANALYZE: usize = 10;
 
 #[derive(Serialize)]
 struct MultiAnalysisResult {
+    hostname: String,
     single_results: Vec<SingleAnalysisResult>,
 }
 
@@ -511,7 +512,11 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
     log::info!("Pearson correlation over all files:");
     covariance_set.pearson_correlation().unwrap().debug_print();
 
-    Ok(MultiAnalysisResult { single_results })
+    Ok(MultiAnalysisResult {
+        hostname: String::from_utf8_lossy(gethostname::gethostname().as_encoded_bytes())
+            .to_string(),
+        single_results,
+    })
 }
 
 #[derive(Debug, Default, Serialize)]
