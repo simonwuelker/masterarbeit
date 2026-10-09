@@ -401,6 +401,7 @@ fn local_main(
         stacked_plot_bucket_size: bucket_size_for_stacked_plots,
         average_lookbehind_per_bucket,
         imports_at_clause_ids,
+        num_solvers: proof_files.len(),
     })
 }
 
@@ -411,8 +412,10 @@ struct SingleAnalysisResult {
     /// Only present in `server` mode.
     problem_name: Option<String>,
     time: f64,
+    num_solvers: usize,
     #[serde(skip)]
     covariance_set: CovarianceSet,
+    #[serde(flatten)]
     result_data: ResultData,
     histogram_2d_set: Histogram2DSet,
     critical_clauses_per_thread_over_time: BucketStore<Sum>,
@@ -516,6 +519,7 @@ struct PerFileInfo {
     smallest_id: Option<Id>,
     id_of_unsat_clause: Option<Id>,
     import_depths: [f32; TRACK_DERIVATIVES_UP_TO as usize],
+    unused_imports: Vec<Id>,
 }
 
 fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
@@ -571,5 +575,6 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
         import_depths: usage_stats
             .import_depth
             .map(|depth| depth as f32 / usage_stats.num_imports as f32),
+        unused_imports: unused_imports.into_iter().collect(),
     }
 }
