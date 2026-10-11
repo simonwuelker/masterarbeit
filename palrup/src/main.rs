@@ -300,6 +300,8 @@ fn local_main(
         BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
     let mut average_lookbehind_per_bucket =
         BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
+    let mut count = 0_usize;
+    let mut metric_store = MetricStore::default();
     while let Some(next) = reverse_dag_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
@@ -353,6 +355,19 @@ fn local_main(
                     average_lookbehind,
                     proof_files.len(),
                 );
+
+                if count % 128 == 0 {
+                    metric_store.is_critical.push(next.is_critical);
+                    metric_store
+                        .number_of_literals
+                        .push(add_step.literals.len());
+                    metric_store.incoming_edges.push(add_step.hints.len());
+                    metric_store.outgoing_edges.push(next.outgoing_edges);
+                    metric_store.lifetime.push(lifetime as usize);
+                    metric_store.minimum_lifetime.push(lifetime as usize);
+                    metric_store.average_lookbehind.push(average_lookbehind)
+                }
+                count = count.wrapping_add(1);
                 // histogram_set.add_sample(metrics);
                 // histogram_2d_set.add_sample(metrics);
             }
@@ -402,7 +417,19 @@ fn local_main(
         average_lookbehind_per_bucket,
         imports_at_clause_ids,
         num_solvers: proof_files.len(),
+        metric_store,
     })
+}
+
+#[derive(Default, Serialize)]
+struct MetricStore {
+    is_critical: Vec<bool>,
+    number_of_literals: Vec<usize>,
+    incoming_edges: Vec<usize>,
+    outgoing_edges: Vec<usize>,
+    lifetime: Vec<usize>,
+    minimum_lifetime: Vec<usize>,
+    average_lookbehind: Vec<f64>,
 }
 
 #[derive(Serialize)]
@@ -423,6 +450,7 @@ struct SingleAnalysisResult {
     average_lookbehind_per_bucket: BucketStore<Average>,
     stacked_plot_bucket_size: usize,
     imports_at_clause_ids: Vec<import_log_parser::ImportStep>,
+    metric_store: MetricStore,
 }
 
 const NUM_PROBLEMS_TO_ANALYZE: usize = 10;
@@ -580,6 +608,6 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
         import_depths: usage_stats
             .import_depth
             .map(|depth| depth as f32 / usage_stats.num_imports as f32),
-        unused_imports: unused_imports.into_iter().collect(),
+        unused_imports: vec![], // unused_imports.into_iter().collect(),
     }
 }
