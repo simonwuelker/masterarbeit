@@ -106,6 +106,10 @@ with open("out.json", "r") as f:
 import numpy as np
 import matplotlib.pyplot as plt
 
+def extract_problem_name(filename):
+    without_hash = filename.split("-", 1)[1]
+    return without_hash.removesuffix(".cnf.xz")
+
 def plot_import_generations(data):
     import_depths = np.array([data["per_file"][filename]["import_depths"] for filename in data["per_file"]])
     standard_deviation = np.std(import_depths, axis=0)
@@ -122,15 +126,35 @@ def plot_import_generations(data):
     plt.savefig("import-generations.svg")
 
 def plot_unused_imports_per_generation(data):
-    unused_imports = data["unused_imports"]
+    fig, ax = plt.subplots(figsize=(12, 5), layout="constrained")
+    for per_problem in data:
+        id_of_unsat_clause = -1
+        total_unused_imports = []
+        problem_name = extract_problem_name(per_problem["problem_name"])
 
-    fig, ax = plt.subplots()
+        # if not "oddball" in problem_name and not "at-least-two" in problem_name:
+        #     pass
+        print(per_problem["problem_name"], per_problem["time"])
+        for file in per_problem["per_file"].values():
+            if file["id_of_unsat_clause"] is not None:
+                id_of_unsat_clause = max(file["id_of_unsat_clause"], id_of_unsat_clause)
+            total_unused_imports += file["unused_imports"][::30]
 
-    ax.plot(unused_imports, [n / len(unused_imports) for n in range(len(unused_imports))])
-    ax.set_ylabel('Percentage of total imports')
-    ax.set_title('Unused imports over time')
-    ax.set_xlabel("Clause ID")
-    # ax.set_yscale("log")
+        if len(total_unused_imports) == 0:
+            continue
+        print("Sorting...", len(total_unused_imports), id_of_unsat_clause)
+        total_unused_imports.sort()
+
+        ax.plot(
+            [x / id_of_unsat_clause for x in total_unused_imports],
+            [n / len(total_unused_imports) for n in range(len(total_unused_imports))],
+            label =problem_name
+        )
+
+    ax.set_ylabel('Unused imports so far / total unused impor')
+    ax.set_title('Frequency of unused imports throughout solving')
+    ax.set_xlabel("Solving progress")
+    leg = ax.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
     plt.savefig("unused-imports-per-communication-step.svg")
 
 def plot_single_histogram(ax, title, histogram_data):
@@ -485,10 +509,13 @@ def linreg(x, y):
     A = np.vstack([x, np.ones(len(x))]).T
     return np.linalg.lstsq(A, y)[0]
 
+
 def plot_depth_volume_time_correlations(data):
     print(data[3].keys())
+    data = sorted(data, key=lambda single_result: single_result["volume"])
     x = np.array([single_result["volume"] for single_result in data])
     y = np.array([single_result["time"] for single_result in data])
+    print(len(x))
     plt.scatter(x, y, marker="x", label="Observed Data")
     plt.ylabel("time (seconds)")
     plt.xlabel("volume (clauses)")
@@ -496,13 +523,56 @@ def plot_depth_volume_time_correlations(data):
     a, b = linreg(x, y)
     plt.plot(x, a*x + b, 'r', label='Fitted line')
     plt.legend()
+    plt.yscale("log")
+    plt.xscale("log")
 
     for i in range(len(data)):
-        plt.annotate(data[i]["problem"].split("-")[1], (x[i], y[i] + 2), ha="center", va="bottom")
+        plt.annotate(extract_problem_name(data[i]["problem"]), (x[i], y[i]), ha="center", va="bottom")
     plt.savefig("depth_volume_time.svg")
 
+def violin_plot(data):
+    print(data["single_results"][0]["metric_store"].keys())
+
+    fig, axs = plt.subplots(nrows=2, ncols=2)
+
+    def for_metric(ax, name, ylabel, skip_greater_than=None, skip_value=None):
+        when_critical = []
+        when_not_critical = []
+        skipped = 0
+        for problem_data in data["single_results"]:
+            metric_store = problem_data["metric_store"]
+            for important, value in zip(metric_store["is_critical"], metric_store[name]):
+                if skip_greater_than is not None and value > skip_greater_than:
+                    if important:
+                        skipped += 1
+                    continue;
+                if skip_value is not None and value == skip_value:
+                    continue
+                if important:
+                    when_critical.append(value)
+                else:
+                    when_not_critical.append(value)
+
+
+        total = when_critical + when_not_critical
+        print(min(when_critical), min(when_not_critical))
+        print("skipped important", skipped, "left with", len(when_critical))
+        # axs.set_yscale("log")
+        print(when_critical.count(3) / len(when_critical), when_not_critical.count(3) / len(when_not_critical))
+        ax.violinplot([when_not_critical, when_critical, total], showmeans=True)
+        ax.set_xticks([1, 2, 3], labels=["Not Important","Important",  "Total"])
+        ax.set_ylabel(ylabel)
+
+    for_metric(axs[0][0], "number_of_literals", "#Literals", skip_greater_than=25, skip_value=0)
+    for_metric(axs[1][0], "incoming_edges", "#Hints", skip_greater_than = 10)
+    for_metric(axs[0][1], "outgoing_edges", "#Derivations", skip_greater_than=7)
+    fig.delaxes(axs[1][1])
+    # for_metric(axs[1][1], "average_lookbehind", "Min Lookbehind", skip_greater_than=50000)
+    plt.tight_layout()
+    plt.savefig("violin_distribution.svg")
 # plot_import_generations(data)
-# plot_unused_imports_per_generation(data)
+# plot_unused_imports_per_generation(data["single_results"])
+violin_plot(data)
 # plot_histograms(data)
 # plot_2d_histograms(data)
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][4])
@@ -518,6 +588,6 @@ def plot_depth_volume_time_correlations(data):
 # plot_contributions_over_time(data)
 # plot_clause_depths(data)
 # plot_contributions_over_time_single(data)
-plot_depth_volume_time_correlations(data)
+# plot_depth_volume_time_correlations(data)
 if args.show_plots:
     plt.show()

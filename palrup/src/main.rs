@@ -356,18 +356,18 @@ fn local_main(
                     proof_files.len(),
                 );
 
-                if count % 128 == 0 {
-                    metric_store.is_critical.push(next.is_critical);
-                    metric_store
-                        .number_of_literals
-                        .push(add_step.literals.len());
-                    metric_store.incoming_edges.push(add_step.hints.len());
-                    metric_store.outgoing_edges.push(next.outgoing_edges);
-                    metric_store.lifetime.push(lifetime as usize);
-                    metric_store.minimum_lifetime.push(lifetime as usize);
-                    metric_store.average_lookbehind.push(average_lookbehind)
-                }
-                count = count.wrapping_add(1);
+                // if count % 128 == 0 {
+                //     metric_store.is_critical.push(next.is_critical);
+                //     metric_store
+                //         .number_of_literals
+                //         .push(add_step.literals.len());
+                //     metric_store.incoming_edges.push(add_step.hints.len());
+                //     metric_store.outgoing_edges.push(next.outgoing_edges);
+                //     metric_store.lifetime.push(lifetime as usize);
+                //     metric_store.minimum_lifetime.push(lifetime as usize);
+                //     metric_store.average_lookbehind.push(average_lookbehind)
+                // }
+                // count = count.wrapping_add(1);
                 // histogram_set.add_sample(metrics);
                 // histogram_2d_set.add_sample(metrics);
             }
