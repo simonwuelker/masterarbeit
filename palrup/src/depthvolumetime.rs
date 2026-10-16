@@ -14,7 +14,7 @@ use serde::Serialize;
 
 pub(crate) fn depthvolumetimemain(
     args: DepthVolumeTimeCommandArgs,
-) -> anyhow::Result<Vec<SingleAnalysisResult>> {
+) -> anyhow::Result<Result> {
     // Find all problem files
     let mut problem_files = vec![];
     for entry in fs::read_dir(&args.problem_directory)
@@ -106,7 +106,17 @@ pub(crate) fn depthvolumetimemain(
         fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
     }
 
-    Ok(results)
+    Ok(Result {
+        hostname: String::from_utf8_lossy(gethostname::gethostname().as_encoded_bytes())
+            .to_string(),
+        results
+    })
+}
+
+#[derive(Serialize)]
+pub(crate) struct Result {
+    hostname: String,
+    results: Vec<SingleAnalysisResult>,
 }
 
 #[derive(Serialize)]
