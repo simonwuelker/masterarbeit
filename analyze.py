@@ -3,104 +3,20 @@
 import matplotlib.pyplot as plt
 import argparse
 import numpy as np
+import seaborn as sns
 
 parser = argparse.ArgumentParser(prog="PalRup analyzer",
                     description="analyzes the output from the corresponding rust program",
                     epilog="u")
 
+parser.add_argument("json", help="Path to JSON data", default="out.json")
 parser.add_argument("--parse-edgelist", nargs="?", const="None", dest="parse_edgelist", help="Analyze the provided edgelist with graphvise")
 parser.add_argument("--show-plots", action="store_true", help="Whether matplotlib plots should be shown or just saved")
 args = parser.parse_args()
 
-
-if args.parse_edgelist is not None:
-    import networkit as nk
-    filename = parser.parse_edgelist
-    G = nk.graphio.EdgeListReader("\t", 0, "#", continuous=False).read(filename)
-    # G = nk.graphio.EdgeListReader("\t", 0, "#",  directed=True, continuous=False).read("out.edgelist")
-    print(nk.overview(G))
-
-    def edgeFunc(u, v, weight, edgeId):
-        print("Edge from {} to {} has weight {} and id {}".format(u, v, weight, edgeId))
-
-    print("Computing connected components...")
-    cc = nk.components.ConnectedComponents(G)
-    cc.run()
-    components = [c for c in sorted(cc.getComponents(), key=len) if len(c) != 1 ];
-
-    print("Detecting communities...")
-    communities = nk.community.detectCommunities(G)
-    print("Number of communities: ", communities.numberOfSubsets())
-
-    sizes = sorted([len(communities.getMembers(index)) for index in range(communities.numberOfSubsets())])
-    print(sum([len(communities.getMembers(index)) > 2000 for index in range(communities.numberOfSubsets())]))
-
-    # print("Writing GraphVise graph...")
-    # with open("graphvise.txt", "w") as outfile:
-    #     v = sum(sizes)
-    #     e = sum(1 for _ in G.iterEdges())
-    #     outfile.write(f"v={v},e={e}\n")
-
-    #     def callback(u, v, weight, edgeId):
-    #         outfile.write(f"{u} {v}\n")
-    #     G.forEdges(callback)
-
-    # import random
-    # random.seed(42)
-    # with open("graphvise_coloring.txt", "w") as outfile:
-    #     # v = sum(sizes)
-    #     # e = sum(1 for _ in G.iterEdges())
-    #     # outfile.write(f"v={v},e={e}\n")
-    #     for index in range(communities.numberOfSubsets()):
-    #         r = random.randint(0, 255)
-    #         g = random.randint(0, 255)
-    #         b = random.randint(0, 255)
-    #         outfile.write(f"Group Group{index} {r} {g} {b}\n")
-    #         for member in communities.getMembers(index):
-    #             outfile.write(f"{member}\n")
-    #         outfile.write("\n")
-
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session
-    engine = create_engine("sqlite:///database.db")
-
-    from sqlalchemy import String
-    from sqlalchemy.orm import DeclarativeBase
-    from sqlalchemy.orm import Mapped
-    from sqlalchemy.orm import mapped_column
-    from sqlalchemy_utils import database_exists, create_database
-    if not database_exists(engine.url):
-        create_database(engine.url)
-
-    class Base(DeclarativeBase):
-        pass
-
-    class GraphAnalysis(Base):
-        __tablename__ = "graph_analysis"
-        id: Mapped[int] = mapped_column(primary_key=True)
-        filename: Mapped[str] = mapped_column(String(100))
-        average_out_degree: Mapped[float]
-        global_clustering_coefficient: Mapped[float]
-
-        def __repr__(self) -> str:
-            return f"PalRup(id={self.id!r}, name={self.filename!r}"
-
-    GraphAnalysis.__table__.drop(engine)
-    Base.metadata.create_all(engine)
-
-    with Session(engine) as session:
-        graph_analysis = GraphAnalysis(
-            filename=filename,
-            average_out_degree=G.numberOfEdges() / G.numberOfNodes(),
-            global_clustering_coefficient=nk.globals.clustering(G)
-        )
-        session.add_all([graph_analysis])
-        session.commit()
-
-
 import json
 
-with open("out.json", "r") as f:
+with open(args.json, "r") as f:
     data = json.load(f)
 
 import numpy as np
@@ -108,7 +24,11 @@ import matplotlib.pyplot as plt
 
 def extract_problem_name(filename):
     without_hash = filename.split("-", 1)[1]
-    return without_hash.removesuffix(".cnf.xz")
+    without_hash = without_hash.removesuffix(".cnf.xz")
+    without_hash = without_hash.removesuffix(".normalized")
+    without_hash = without_hash.removesuffix(".sanitized")
+    without_hash = without_hash.removesuffix(".normalised")
+    return without_hash
 
 def plot_import_generations(data):
     import_depths = np.array([data["per_file"][filename]["import_depths"] for filename in data["per_file"]])
@@ -559,9 +479,19 @@ def violin_plot(data):
         print("skipped important", skipped, "left with", len(when_critical))
         # axs.set_yscale("log")
         print(when_critical.count(3) / len(when_critical), when_not_critical.count(3) / len(when_not_critical))
-        ax.violinplot([when_not_critical, when_critical, total], showmeans=True)
-        ax.set_xticks([1, 2, 3], labels=["Not Important","Important",  "Total"])
-        ax.set_ylabel(ylabel)
+        sns.histplot(discrete=True, data=when_critical, ax=ax, label="Important",stat="probability",)
+        sns.histplot(discrete=True, data=when_not_critical, ax=ax, label="Not important",stat="probability")
+        # ax.violinplot([when_not_critical, when_critical, total], showmeans=True)
+        # ax.set_xticks([1, 2, 3], labels=["Not Important","Important",  "Total"])
+        ax.set_xlabel(ylabel)
+        ax.set_ylabel("Density")
+        if max(total) > 10:
+            ax.set_xticks(range(0, max(total)  +1, 5))
+        else:
+            ax.set_xticks(range(0, max(total)  +1))
+        ax.grid(axis="y")
+
+        ax.legend()
 
     for_metric(axs[0][0], "number_of_literals", "#Literals", skip_greater_than=25, skip_value=0)
     for_metric(axs[1][0], "incoming_edges", "#Hints", skip_greater_than = 10)
@@ -570,8 +500,72 @@ def violin_plot(data):
     # for_metric(axs[1][1], "average_lookbehind", "Min Lookbehind", skip_greater_than=50000)
     plt.tight_layout()
     plt.savefig("violin_distribution.svg")
+
+def plot_runtime_differences():
+    with open("jsons/timing-normal-run-cook.json", "r") as outfile:
+        data = json.load(outfile)
+        expected_order = [problem["problem_name"] for problem in data["single_results"]]
+        normal_timings = [problem["time"] for problem in data["single_results"]]
+    with open("jsons/timing-searchonly-run-cook.json", "r") as outfile:
+        data = json.load(outfile)
+        order = [problem["problem_name"] for problem in data["single_results"]]
+        assert expected_order == order
+        searchonly_timings = [problem["time"] for problem in data["single_results"]]
+    with open("jsons/timing-unsatonly-run-cook.json", "r") as outfile:
+        data = json.load(outfile)
+        order = [problem["problem_name"] for problem in data["single_results"]]
+        assert expected_order == order
+        unsat_timings = [problem["time"] for problem in data["single_results"]]
+
+    fig = plt.figure(layout='constrained', figsize=(12, 5))
+    gs = fig.add_gridspec(1, 2, width_ratios=[3, 2])
+    ax = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
+    # ax.set_xticks([x for x in range(len(expected_order))], labels=expected_order, rotation=340)
+    ax[0].set_title("Solve time with different configurations")
+    ax[0].set_ylabel("Time (seconds)")
+    ax[0].set_xlabel("Problem ID")
+    ax[0].set_yscale("log")
+    ax[0].grid()
+
+    problems = [extract_problem_name(p) for p in expected_order]
+    ax[0].grouped_bar(
+        [normal_timings, searchonly_timings, unsat_timings],
+        tick_labels=[x for x in range(len(expected_order))],
+        labels=["Default Portfolio", "Searchonly", "Unsat Preset"]
+    )
+    ax[0].legend()
+
+    # === Table ===
+    ax[1].axis("off")
+    table_data = [
+        [index, extract_problem_name(label)]
+        for index, label in enumerate(expected_order)
+    ]
+
+    table = ax[1].table(
+        cellText=table_data,
+        colLabels=["#", "Category"],
+        loc="center",
+        cellLoc="left",
+        colWidths=[0.1, 0.9],
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.8)
+    for cell in table.get_celld().values():
+        cell.PAD = 0.1
+        pass
+    # for container in res.bar_containers:
+    #     ax.bar_label(container, padding=3)
+    plt.savefig("runtime-differences.svg")
+
+# plot_runtime_differences()
 # plot_import_generations(data)
 # plot_unused_imports_per_generation(data["single_results"])
+# print(data["hostname"])
+# for problem in data["single_results"]:
+#     print(problem["problem_name"], problem["time"])
 violin_plot(data)
 # plot_histograms(data)
 # plot_2d_histograms(data)
