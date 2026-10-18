@@ -4,8 +4,10 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Stdio;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context};
+use process_control::{ChildExt, Control};
 use regex::Regex;
 
 static COMPUTE_TIME_REGEX: LazyLock<Regex> =
@@ -19,17 +21,45 @@ pub(crate) struct MallobInvocationResult {
     pub(crate) compute_time: f64,
 }
 
+pub(crate) enum TimeoutOrResult {
+    Timeout,
+    Success(MallobInvocationResult),
+}
+
+impl TimeoutOrResult {
+    pub(crate) fn unwrap(self) -> MallobInvocationResult {
+        match self {
+            Self::Timeout => unreachable!(),
+            Self::Success(result) => result,
+        }
+    }
+}
+
+pub(crate) enum InvocationMode {
+    Parallel,
+    Sequential,
+}
+
 pub(crate) fn invoke_mallob(
     mallob_dir: impl AsRef<Path>,
     problem: impl AsRef<Path>,
     temp_dir: impl AsRef<Path>,
-) -> anyhow::Result<MallobInvocationResult> {
+    invocation_mode: InvocationMode,
+    timeout: Option<Duration>,
+) -> anyhow::Result<TimeoutOrResult> {
     let old_directory = env::current_dir()?;
     env::set_current_dir(&mallob_dir)?;
 
     let mallob_binary = mallob_dir.as_ref().join("build/mallob");
     let num_threads = std::thread::available_parallelism()?.get();
-    let num_procs = num_threads / 8;
+    let num_procs = match invocation_mode {
+        InvocationMode::Sequential => 1,
+        InvocationMode::Parallel => num_threads / 8,
+    };
+    let threads_per_process = match invocation_mode {
+        InvocationMode::Sequential => 1,
+        InvocationMode::Parallel => 4,
+    };
 
     let problem = problem.as_ref();
     let temp_dir = temp_dir.as_ref();
@@ -45,7 +75,7 @@ pub(crate) fn invoke_mallob(
             "--map-by".to_string(),
             format!("ppr:{num_procs}:node:pe=4"),
             format!("{}", mallob_binary.display()),
-            "-t=4".to_string(),
+            format!("-t={threads_per_process}"),
             format!("-mono={}", problem.display()),
             "-satsolver=c".to_string(),
             "--palrup".to_string(),
@@ -54,10 +84,22 @@ pub(crate) fn invoke_mallob(
         .stdout(Stdio::piped());
     log::debug!("Invoking {command:?}");
     let child_handle = command.spawn()?;
+    let controlled = child_handle.controlled_with_output();
 
-    let output = child_handle
-        .wait_with_output()
-        .context("Waiting for mallob to complete")?;
+    let controlled = if let Some(timeout) = timeout {
+        controlled
+            .time_limit(Duration::from_secs(1))
+            .terminate_for_timeout()
+    } else {
+        controlled
+    };
+    let Some(output) = controlled
+        .wait()
+        .context("Waiting for mallob to complete")?
+    else {
+        log::info!("Mallob process timed out after {:?}", timeout);
+        return Ok(TimeoutOrResult::Timeout);
+    };
 
     if !output.status.success() {
         log::error!(
@@ -90,10 +132,10 @@ pub(crate) fn invoke_mallob(
 
     env::set_current_dir(old_directory)?;
 
-    Ok(MallobInvocationResult {
+    Ok(TimeoutOrResult::Success(MallobInvocationResult {
         stdout: output.stdout,
         stderr: output.stderr,
         proof_directory,
         compute_time,
-    })
+    }))
 }

@@ -26,7 +26,7 @@ use crate::bucket_store::{Average, BucketStore, Sum};
 use crate::evaluation::histogram_2d::{Histogram2D, Histogram2DSet};
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{CovarianceSet, MetricSet};
-use crate::mallob_interface::invoke_mallob;
+use crate::mallob_interface::{invoke_mallob, InvocationMode};
 use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 use palrup_io::{find_proof_files, Id, PalrupIterator, Step};
@@ -516,7 +516,14 @@ fn server_main(args: ServerCommandArgs) -> Result<MultiAnalysisResult> {
         }
 
         // Run mallob on that problem
-        let mallob_result = invoke_mallob(&args.mallob, &problem, &temp_dir)?;
+        let mallob_result = invoke_mallob(
+            &args.mallob,
+            &problem,
+            &temp_dir,
+            InvocationMode::Parallel,
+            None,
+        )?
+        .unwrap();
 
         fs::write(temp_dir.join("stdout"), &mallob_result.stdout).context("Log mallob stdout")?;
         fs::write(temp_dir.join("stderr"), &mallob_result.stderr).context("Log mallob stderr")?;

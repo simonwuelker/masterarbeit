@@ -1,20 +1,22 @@
 use crate::depths;
 use crate::depths::DepthResult;
 use crate::mallob_interface::invoke_mallob;
+use crate::mallob_interface::InvocationMode;
+use crate::mallob_interface::TimeoutOrResult;
 use crate::strip;
 use crate::strip::StripResult;
 use crate::DepthVolumeTimeCommandArgs;
 use crate::StripCommandArgs;
 
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
 use anyhow::anyhow;
 use anyhow::Context;
 use serde::Serialize;
 
-pub(crate) fn depthvolumetimemain(
-    args: DepthVolumeTimeCommandArgs,
-) -> anyhow::Result<Result> {
+pub(crate) fn depthvolumetimemain(args: DepthVolumeTimeCommandArgs) -> anyhow::Result<Result> {
     // Find all problem files
     let mut problem_files = vec![];
     for entry in fs::read_dir(&args.problem_directory)
@@ -24,7 +26,6 @@ pub(crate) fn depthvolumetimemain(
                 args.problem_directory.display()
             )
         })?
-        .take(10)
     {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
@@ -63,35 +64,94 @@ pub(crate) fn depthvolumetimemain(
             index + 1,
             problem_files.len()
         );
+        let problem_name = String::from_utf8_lossy(problem.as_os_str().as_bytes()).to_string();
 
-        // Ensure temporary directory exists
-        if !fs::exists(temp_dir).context("Checking if temp dir exists")? {
-            fs::create_dir(temp_dir).context("Creating temporary directory")?;
-        }
-
-        let result = invoke_mallob(&args.mallob, problem, temp_dir)?;
-
-        // Strip the resulting proof
-        log::info!("Stripping proof in {}", result.proof_directory.display());
-        let strip_result = strip::strip_command(&StripCommandArgs {
-            proof_directory: result.proof_directory.clone(),
-            stripped_directory: stripped_directory.clone(),
-            error_probability: 0.01,
-        })?;
-
-        // Compute depth
-        let Ok(depth) = depths::depths(&stripped_directory) else {
+        // Ensure temporary directory exists and is empty
+        if fs::exists(temp_dir).context("Checking if temp dir exists")? {
             // Clear temporary directory
             log::debug!("Clearing temporary directory");
             fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
+        }
+        fs::create_dir(temp_dir).context("Creating temporary directory")?;
+
+        log::debug!("Solving sequentially...");
+        let result = match invoke_mallob(
+            &args.mallob,
+            problem,
+            temp_dir,
+            InvocationMode::Sequential,
+            None,
+        )? {
+            TimeoutOrResult::Success(result) => result,
+            TimeoutOrResult::Timeout => {
+                log::error!("Timed out.");
+                results.push(ProblemResult {
+                    problem: problem_name,
+                    analysis_or_error: AnalysisOrError::TimedOut,
+                });
+                continue;
+            }
+        };
+
+        let Ok(sequential_analysis) = analyze_proof_certificate(
+            result.proof_directory,
+            &stripped_directory,
+            result.compute_time,
+        ) else {
+            log::error!("Internal error");
+            results.push(ProblemResult {
+                problem: problem_name,
+                analysis_or_error: AnalysisOrError::InternalError,
+            });
             continue;
         };
 
-        results.push(SingleAnalysisResult {
-            problem: problem.display().to_string(),
-            time: result.compute_time,
-            depth_result: depth,
-            strip_result,
+        // Ensure temporary directory exists and is empty
+        if fs::exists(temp_dir).context("Checking if temp dir exists")? {
+            // Clear temporary directory
+            log::debug!("Clearing temporary directory");
+            fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
+        }
+        fs::create_dir(temp_dir).context("Creating temporary directory")?;
+
+        log::debug!("Running in parallel...");
+        let result = match invoke_mallob(
+            &args.mallob,
+            problem,
+            temp_dir,
+            InvocationMode::Parallel,
+            None,
+        )? {
+            TimeoutOrResult::Success(result) => result,
+            TimeoutOrResult::Timeout => {
+                log::error!("Timed out.");
+                results.push(ProblemResult {
+                    problem: problem_name,
+                    analysis_or_error: AnalysisOrError::TimedOut,
+                });
+                continue;
+            }
+        };
+
+        let Ok(parallel_analysis) = analyze_proof_certificate(
+            result.proof_directory,
+            &stripped_directory,
+            result.compute_time,
+        ) else {
+            log::error!("Internal error");
+            results.push(ProblemResult {
+                problem: problem_name,
+                analysis_or_error: AnalysisOrError::InternalError,
+            });
+            continue;
+        };
+
+        results.push(ProblemResult {
+            problem: problem_name,
+            analysis_or_error: AnalysisOrError::Success(ParallelAndSequential {
+                sequential: sequential_analysis,
+                parallel: parallel_analysis,
+            }),
         });
 
         log::info!("Saving checkpoint to {}", checkpoint_file.display());
@@ -109,19 +169,60 @@ pub(crate) fn depthvolumetimemain(
     Ok(Result {
         hostname: String::from_utf8_lossy(gethostname::gethostname().as_encoded_bytes())
             .to_string(),
-        results
+        results,
+    })
+}
+
+fn analyze_proof_certificate(
+    proof_directory: impl AsRef<Path>,
+    stripped_directory: impl AsRef<Path>,
+    time: f64,
+) -> anyhow::Result<SingleAnalysisResult> {
+    // Strip the resulting proof
+    log::info!("Stripping proof in {}", proof_directory.as_ref().display());
+    let strip_result = strip::strip_command(&StripCommandArgs {
+        proof_directory: proof_directory.as_ref().to_owned(),
+        stripped_directory: stripped_directory.as_ref().to_owned(),
+        error_probability: 0.01,
+    })?;
+
+    // Compute depth
+    let depth = depths::depths(&stripped_directory)?;
+
+    Ok(SingleAnalysisResult {
+        time,
+        depth_result: depth,
+        strip_result,
     })
 }
 
 #[derive(Serialize)]
 pub(crate) struct Result {
     hostname: String,
-    results: Vec<SingleAnalysisResult>,
+    results: Vec<ProblemResult>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ProblemResult {
+    problem: String,
+    analysis_or_error: AnalysisOrError,
+}
+
+#[derive(Serialize)]
+pub(crate) enum AnalysisOrError {
+    InternalError,
+    TimedOut,
+    Success(ParallelAndSequential),
+}
+
+#[derive(Serialize)]
+pub(crate) struct ParallelAndSequential {
+    sequential: SingleAnalysisResult,
+    parallel: SingleAnalysisResult,
 }
 
 #[derive(Serialize)]
 pub(crate) struct SingleAnalysisResult {
-    problem: String,
     time: f64,
     #[serde(flatten)]
     depth_result: DepthResult,
