@@ -11,6 +11,7 @@ use crate::StripCommandArgs;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use anyhow::Context;
@@ -55,6 +56,7 @@ pub(crate) fn depthvolumetimemain(args: DepthVolumeTimeCommandArgs) -> anyhow::R
     }
     let stripped_directory = temp_dir.join("stripped");
 
+    const TIMEOUT: Duration = Duration::from_secs(3600);
     let mut results = vec![];
     let checkpoint_file = args.checkpoints.join(format!("checkpoint.json"));
     for (index, problem) in problem_files.iter().enumerate() {
@@ -80,7 +82,7 @@ pub(crate) fn depthvolumetimemain(args: DepthVolumeTimeCommandArgs) -> anyhow::R
             problem,
             temp_dir,
             InvocationMode::Sequential,
-            None,
+            Some(TIMEOUT),
         )? {
             TimeoutOrResult::Success(result) => result,
             TimeoutOrResult::Timeout => {
@@ -120,7 +122,7 @@ pub(crate) fn depthvolumetimemain(args: DepthVolumeTimeCommandArgs) -> anyhow::R
             problem,
             temp_dir,
             InvocationMode::Parallel,
-            None,
+            Some(TIMEOUT),
         )? {
             TimeoutOrResult::Success(result) => result,
             TimeoutOrResult::Timeout => {
