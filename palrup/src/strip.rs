@@ -31,12 +31,14 @@ pub(crate) fn strip_command(args: &StripCommandArgs) -> anyhow::Result<StripResu
 
     // Coalesce the results into one
     let smallest_derived_id = per_file_forward_info
-        .first()
-        .and_then(|info| info.smallest_id)
+        .iter()
+        .flat_map(|info| info.smallest_id)
+        .min()
         .unwrap();
     let largest_derived_id = per_file_forward_info
-        .last()
-        .and_then(|info| info.largest_id)
+        .iter()
+        .flat_map(|info| info.largest_id)
+        .max()
         .unwrap();
     let mut id_of_unsat_clause = None;
     for (index, file_forward_info) in per_file_forward_info.into_iter().enumerate() {
