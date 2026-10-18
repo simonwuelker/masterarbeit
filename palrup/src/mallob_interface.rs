@@ -88,7 +88,7 @@ pub(crate) fn invoke_mallob(
 
     let controlled = if let Some(timeout) = timeout {
         controlled
-            .time_limit(Duration::from_secs(1))
+            .time_limit(timeout)
             .terminate_for_timeout()
     } else {
         controlled
