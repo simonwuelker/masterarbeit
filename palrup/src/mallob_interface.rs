@@ -87,9 +87,7 @@ pub(crate) fn invoke_mallob(
     let controlled = child_handle.controlled_with_output();
 
     let controlled = if let Some(timeout) = timeout {
-        controlled
-            .time_limit(timeout)
-            .terminate_for_timeout()
+        controlled.time_limit(timeout).terminate_for_timeout()
     } else {
         controlled
     };
@@ -98,6 +96,10 @@ pub(crate) fn invoke_mallob(
         .context("Waiting for mallob to complete")?
     else {
         log::info!("Mallob process timed out after {:?}", timeout);
+
+        // Wait a bit - sometimes mallob isnt killed immediately and then touching the directory
+        // fails.
+        std::thread::sleep(Duration::from_secs(10));
         return Ok(TimeoutOrResult::Timeout);
     };
 

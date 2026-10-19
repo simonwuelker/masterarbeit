@@ -23,6 +23,10 @@ pub(crate) fn strip_command(args: &StripCommandArgs) -> anyhow::Result<StripResu
     let proof_files =
         find_proof_files(&args.proof_directory).context("Failed to enumerate proof files")?;
 
+    for proof_file in &proof_files {
+        log::debug!("* {}", proof_file.display());
+    }
+
     let mut per_file_forward_info = Vec::with_capacity(proof_files.len());
     proof_files
         .par_iter()

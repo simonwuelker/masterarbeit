@@ -17,17 +17,27 @@ use anyhow::anyhow;
 use anyhow::Context;
 use serde::Serialize;
 
+fn refresh_temporary_directory(temp_dir: impl AsRef<Path>) -> anyhow::Result<()> {
+    // Ensure temporary directory exists and is empty
+    if fs::exists(&temp_dir).context("Checking if temp dir exists")? {
+        // Clear temporary directory
+        log::debug!("Clearing temporary directory");
+        fs::remove_dir_all(&temp_dir).context("Clearing temporary directory")?;
+    }
+    fs::create_dir(&temp_dir).context("Creating temporary directory")?;
+
+    Ok(())
+}
+
 pub(crate) fn depthvolumetimemain(args: DepthVolumeTimeCommandArgs) -> anyhow::Result<Result> {
     // Find all problem files
     let mut problem_files = vec![];
-    for entry in fs::read_dir(&args.problem_directory)
-        .with_context(|| {
-            format!(
-                "Reading problem directory ({})",
-                args.problem_directory.display()
-            )
-        })?
-    {
+    for entry in fs::read_dir(&args.problem_directory).with_context(|| {
+        format!(
+            "Reading problem directory ({})",
+            args.problem_directory.display()
+        )
+    })? {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
             log::warn!(
@@ -68,13 +78,7 @@ pub(crate) fn depthvolumetimemain(args: DepthVolumeTimeCommandArgs) -> anyhow::R
         );
         let problem_name = String::from_utf8_lossy(problem.as_os_str().as_bytes()).to_string();
 
-        // Ensure temporary directory exists and is empty
-        if fs::exists(temp_dir).context("Checking if temp dir exists")? {
-            // Clear temporary directory
-            log::debug!("Clearing temporary directory");
-            fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
-        }
-        fs::create_dir(temp_dir).context("Creating temporary directory")?;
+        refresh_temporary_directory(temp_dir)?;
 
         log::debug!("Solving sequentially...");
         let result = match invoke_mallob(
@@ -108,13 +112,7 @@ pub(crate) fn depthvolumetimemain(args: DepthVolumeTimeCommandArgs) -> anyhow::R
             continue;
         };
 
-        // Ensure temporary directory exists and is empty
-        if fs::exists(temp_dir).context("Checking if temp dir exists")? {
-            // Clear temporary directory
-            log::debug!("Clearing temporary directory");
-            fs::remove_dir_all(temp_dir).context("Clearing temporary directory")?;
-        }
-        fs::create_dir(temp_dir).context("Creating temporary directory")?;
+        refresh_temporary_directory(temp_dir)?;
 
         log::debug!("Running in parallel...");
         let result = match invoke_mallob(
