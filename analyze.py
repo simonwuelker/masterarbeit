@@ -560,13 +560,124 @@ def plot_runtime_differences():
     #     ax.bar_label(container, padding=3)
     plt.savefig("runtime-differences.svg")
 
+def plot_correlation_between_proof_dag_volume_and_time(data):
+    observed_speedups = []
+    predicted_speedups = []
+
+    for problem_data in data:
+        problem_name = problem_data["problem"]
+        print(problem_name)
+        if not "Success"in problem_data["analysis_or_error"].keys():
+            print("FAILED")
+            continue
+        problem_data = problem_data["analysis_or_error"]["Success"]
+
+        sequential_problem_data = problem_data["sequential"]
+        parallel_problem_data = problem_data["parallel"]
+
+        if sequential_problem_data["time"] < 1.0:
+            print("TOO FAST")
+            continue
+
+        predicted_speedup = sequential_problem_data["volume"] / len(sequential_problem_data["depth_values"])
+        observed_speedup = sequential_problem_data["time"] / parallel_problem_data["time"]
+
+        if observed_speedup < 1.0:
+            print("WHAT?")
+
+        predicted_speedups.append(predicted_speedup)
+        observed_speedups.append(observed_speedup)
+
+        print("Predicted speedup on", problem_name, ":", predicted_speedup)
+        print("Actual Speedup:", sequential_problem_data["time"], " vs. ", parallel_problem_data["time"]," => ", observed_speedup)
+
+    plt.scatter(predicted_speedups, observed_speedups, label="Observed Predictions")
+    plt.xscale("log")
+    plt.yscale("log")
+
+    axis_min = min(min(predicted_speedups), min(observed_speedups))
+    axis_max = max(max(predicted_speedups), max(observed_speedups))
+    plt.plot(
+        [axis_min, axis_max],
+        [axis_min, axis_max],
+        "k--",
+        label="Perfect prediction",
+    )
+
+    plt.legend()
+    plt.grid()
+    plt.xlabel("Predicted Speedup")
+    plt.ylabel("Observed Speedup")
+    plt.title("Accuracy of predicted speedups")
+    plt.savefig("speedup_prediction.svg")
+
+import itertools
+def plot_bottleneck_clauses(data):
+    sequential_bottlenecks = []
+    parallel_bottlenecks = []
+
+    parallel = []
+    sequential = []
+
+    for problem_data in data:
+        problem_name = problem_data["problem"]
+        print(problem_name)
+        if not "Success"in problem_data["analysis_or_error"].keys():
+            print("FAILED")
+            continue
+        problem_data = problem_data["analysis_or_error"]["Success"]
+
+        sequential_problem_data = problem_data["sequential"]
+        parallel_problem_data = problem_data["parallel"]
+        print(parallel_problem_data["thread_count"])
+
+        sequential_depths = [sum(bucket) for bucket in sequential_problem_data["depth_values"]]
+        parallel_depths = [sum(bucket) for bucket in parallel_problem_data["depth_values"]]
+
+        count = 0
+        for x in sequential_depths:
+            if x > 1000:
+                count += 1
+        print(count, "large values")
+
+        parallel += parallel_depths
+        sequential += sequential_depths
+
+        if sequential_problem_data["time"] < 1.0:
+            print("TOO FAST")
+            continue
+
+        sequential_bottlenecks.append(sequential_depths.count(1) / len(sequential_problem_data["depth_values"]))
+        parallel_bottlenecks.append(parallel_depths.count(1) / len(parallel_problem_data["depth_values"]))
+
+    print(sequential_bottlenecks)
+    print("Avg sequential", sum(sequential_bottlenecks) / len(sequential_bottlenecks))
+    print("Avg parallel", sum(parallel_bottlenecks) / len(parallel_bottlenecks))
+    print(max(parallel), max(sequential))
+    show_up_to = 49
+
+    print(sequential.count(1), len(sequential), "sequential bottlenecks vs total")
+    plt.hist([sequential, parallel], density=True, histtype="stepfilled", alpha=0.9, bins=show_up_to, range=(1,show_up_to + 1),
+                                   cumulative=-1, label=["Sequential", "Parallel (16 threads)"])
+    plt.ylabel(r"$p(width \geq x)$")
+    plt.xlabel("Proof Graph Width")
+    plt.title("Reversed cumulative distribution of proof graph width")
+    plt.legend()
+    plt.yticks(np.arange(0, 1.1, 0.1))
+    plt.xticks([1] + [x for x in range(0, show_up_to + 2, 5)][1:])
+    plt.grid()
+    plt.savefig("proof_width.svg")
+
 # plot_runtime_differences()
 # plot_import_generations(data)
 # plot_unused_imports_per_generation(data["single_results"])
 # print(data["hostname"])
 # for problem in data["single_results"]:
 #     print(problem["problem_name"], problem["time"])
-violin_plot(data)
+# print(data["hostname"])
+# plot_correlation_between_proof_dag_volume_and_time(data)
+plot_bottleneck_clauses(data)
+# violin_plot(data)
 # plot_histograms(data)
 # plot_2d_histograms(data)
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][4])
