@@ -84,10 +84,11 @@ impl<R: Read + Seek> ReversePalrupIterator<R> {
             + 1;
         self.remaining_stuff_to_append_to_next_chunk
             .extend_from_slice(&next_chunk[..start_of_first_step]);
-        debug_assert!(self
-            .remaining_stuff_to_append_to_next_chunk
-            .last()
-            .is_some_and(|byte| *byte == 0));
+        debug_assert!(
+            self.remaining_stuff_to_append_to_next_chunk
+                .last()
+                .is_some_and(|byte| *byte == 0)
+        );
 
         let steps: io::Result<Vec<_>> =
             palrup_io::PalrupIterator::new(io::Cursor::new(&next_chunk[start_of_first_step..]))
@@ -119,7 +120,7 @@ impl ReversePalrupIterator<BufReader<File>> {
     }
 }
 
-pub(crate) struct ReverseDAGIterator<'a> {
+pub struct MinimalProofGraphIterator<'a> {
     important_roots: std::collections::hash_map::Iter<'a, usize, FxHashSet<Id>>,
     /// Maps from clause ID to statistics on how that clause has been used.
     clause_stats: FxHashMap<Id, ClauseStats>,
@@ -133,20 +134,20 @@ struct ClauseStats {
     first_used_at: Id,
 }
 
-pub(crate) struct ReverseDAGInfo {
-    /// Maps from solver id to the roots of the important-dag-subtrees in that solvers file.
+pub struct MinimalProofGraphInfo {
+    /// Maps from solver id to the roots of the subtrees in that solvers file.
     important_roots: FxHashMap<usize, FxHashSet<Id>>,
 }
 
-pub(crate) struct StepInfo {
-    pub(crate) is_critical: bool,
-    pub(crate) outgoing_edges: usize,
-    pub(crate) minimum_lifetime: usize,
-    pub(crate) step: Step,
+pub struct StepInfo {
+    pub is_critical: bool,
+    pub outgoing_edges: usize,
+    pub minimum_lifetime: usize,
+    pub step: Step,
 }
 
-impl<'a> ReverseDAGIterator<'a> {
-    pub(crate) fn new(info: &'a ReverseDAGInfo, palrup_files: &'a [PathBuf]) -> Self {
+impl<'a> MinimalProofGraphIterator<'a> {
+    pub fn new(info: &'a MinimalProofGraphInfo, palrup_files: &'a [PathBuf]) -> Self {
         Self {
             important_roots: info.important_roots.iter(),
             palrup_files,
@@ -155,7 +156,7 @@ impl<'a> ReverseDAGIterator<'a> {
         }
     }
 
-    pub(crate) fn next(&mut self) -> Result<Option<StepInfo>> {
+    pub fn next(&mut self) -> Result<Option<StepInfo>> {
         if let Some((current_file_iterator, important_ids)) = self.current_file.as_mut() {
             if let Some(next_step_in_current_file) = current_file_iterator.next()? {
                 let mut clause_stats = None;
@@ -218,15 +219,11 @@ fn solver_that_derived_clause(clause_id: Id, palrup_files: &[PathBuf]) -> usize 
     (clause_id as usize) % palrup_files.len()
 }
 
-impl ReverseDAGInfo {
-    pub(crate) fn compute(
-        palrup_files: &[PathBuf],
-        id_of_unsat_clause: Id,
-        first_derived_id: Id,
-    ) -> Self {
+impl MinimalProofGraphInfo {
+    pub fn compute(palrup_files: &[PathBuf], id_of_unsat_clause: Id, first_derived_id: Id) -> Self {
         let start = Instant::now();
 
-        // Contains all imports which extend the reverse DAG into another file AND that we have not looked at.
+        // Contains all imports which extend the proof graph into another file AND that we have not looked at.
         // Maps from the solver ID to the list of such imports for that solver.
         let solver_that_derived_unsat_clause =
             solver_that_derived_clause(id_of_unsat_clause, palrup_files);
@@ -357,7 +354,7 @@ impl ReverseDAGInfo {
             });
         }
 
-        log::info!("Computing reverse DAG took {:?}", start.elapsed());
+        log::info!("Computing minimal proof graph took {:?}", start.elapsed());
 
         let mut critical_clause_roots = critical_clause_roots.lock().unwrap();
         Self {

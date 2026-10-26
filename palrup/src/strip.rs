@@ -8,10 +8,9 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use rustc_hash::FxHashSet;
 use serde::Serialize;
 
-use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::StripCommandArgs;
-use palrup_io::Step::Import;
 use palrup_io::{find_proof_files, Id, PalrupIterator, Step};
+use palrup_proof_graph::{MinimalProofGraphInfo, MinimalProofGraphIterator};
 
 #[derive(Serialize)]
 pub(crate) struct StripResult {
@@ -56,8 +55,9 @@ pub(crate) fn strip_command(args: &StripCommandArgs) -> anyhow::Result<StripResu
         return Err(anyhow!("Did not find UNSAT clause in any proof file"));
     };
 
-    let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause, smallest_derived_id);
-    let mut reverse_dag_iterator = ReverseDAGIterator::new(&info, &proof_files);
+    let info =
+        MinimalProofGraphInfo::compute(&proof_files, id_of_unsat_clause, smallest_derived_id);
+    let mut reverse_dag_iterator = MinimalProofGraphIterator::new(&info, &proof_files);
 
     let mut bloom_filter = GrowableBloom::new(0.01, largest_derived_id as usize);
     let mut original_clauses = 0;

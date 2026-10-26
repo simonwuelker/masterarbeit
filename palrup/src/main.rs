@@ -18,18 +18,17 @@ mod mallob_interface;
 #[cfg(feature = "overlap")]
 mod overlap;
 mod print;
-mod reverse_reader;
 mod strip;
 mod walker;
 
 use crate::bucket_store::{Average, BucketStore, Sum};
-use crate::evaluation::histogram_2d::{Histogram2D, Histogram2DSet};
+use crate::evaluation::histogram_2d::Histogram2DSet;
 use crate::evaluation::histograms::HistogramSet;
 use crate::evaluation::metrics::{CovarianceSet, MetricSet};
 use crate::mallob_interface::{invoke_mallob, InvocationMode};
-use crate::reverse_reader::{ReverseDAGInfo, ReverseDAGIterator};
 use crate::walker::{Walker, TRACK_DERIVATIVES_UP_TO};
 use palrup_io::{find_proof_files, Id, PalrupIterator, Step};
+use palrup_proof_graph::{MinimalProofGraphInfo, MinimalProofGraphIterator};
 
 /// Transpiler from PalRup proof files to edge lists
 #[derive(Parser, Debug)]
@@ -206,13 +205,14 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            let proof_files = find_proof_files(&overlap_args.proof_directory)?;
-
             #[cfg(feature = "overlap")]
-            overlap::overlap(
-                &proof_files[overlap_args.first],
-                &proof_files[overlap_args.second],
-            )?;
+            {
+                let proof_files = find_proof_files(&overlap_args.proof_directory)?;
+                overlap::overlap(
+                    &proof_files[overlap_args.first],
+                    &proof_files[overlap_args.second],
+                )?;
+            }
         }
         Commands::Depth(depth_args) => {
             let result = depths::depths(&depth_args.proof_directory)?;
@@ -282,9 +282,10 @@ fn local_main(
     let bucket_size_for_stacked_plots = id_of_unsat_clause as usize / 8000;
     log::debug!("Inferred bucket size for stacked plots: {bucket_size_for_stacked_plots:?}");
 
-    log::info!("Constructing reverse DAG...");
-    let info = ReverseDAGInfo::compute(&proof_files, id_of_unsat_clause, smallest_derived_id);
-    let mut reverse_dag_iterator = ReverseDAGIterator::new(&info, &proof_files);
+    log::info!("Constructing minimal proof graph...");
+    let info =
+        MinimalProofGraphInfo::compute(&proof_files, id_of_unsat_clause, smallest_derived_id);
+    let mut minimal_proof_graph_iterator = MinimalProofGraphIterator::new(&info, &proof_files);
 
     let mut covariance_set = CovarianceSet::default();
     let mut histogram_set = HistogramSet::default();
@@ -302,7 +303,7 @@ fn local_main(
         BucketStore::new(proof_files.len(), bucket_size_for_stacked_plots);
     let mut count = 0_usize;
     let mut metric_store = MetricStore::default();
-    while let Some(next) = reverse_dag_iterator.next()? {
+    while let Some(next) = minimal_proof_graph_iterator.next()? {
         match &next.step {
             Step::Add(add_step) => {
                 if next.is_critical {
@@ -572,7 +573,6 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
     let mut id_of_unsat_clause = None;
     let mut step_count = 0;
     let mut smallest_id = None;
-    let mut last_id = None;
     for entry in iterator {
         match entry.unwrap() {
             Step::Add(add) => {
@@ -586,7 +586,6 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
                 for derived_from in add.hints {
                     unused_imports.remove(&derived_from);
                 }
-                last_id = Some(add.id);
             }
             Step::Import(import) => {
                 unused_imports.insert(import.imported_clause);
@@ -594,7 +593,6 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
                 walker.import_clause(import);
             }
             Step::Delete(deletion) => {
-                last_id = None;
                 for clause in deletion.deleted_clauses {
                     walker.forget_clause(clause);
                 }

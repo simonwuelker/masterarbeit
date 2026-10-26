@@ -1,7 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["palrup", "palrup-io"]
+members = ["palrup", "palrup-io", "palrup-proof-graph"]
 
 [workspace.dependencies]
 palrup-io = { path = "palrup-io" }
+palrup-proof-graph = { path = "palrup-proof-graph" }
+
 log = "0.4.33"
+rustc-hash = "2.1.3"
+anyhow = "1.0.102"
+rayon = "1.12.0"

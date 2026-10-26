@@ -594,7 +594,8 @@ dependencies = [
  "gethostname",
  "growable-bloom-filter",
  "log",
- "palrup-io",
+ "palrup-io 0.1.0",
+ "palrup-proof-graph",
  "process_control",
  "rayon",
  "regex",
@@ -609,6 +610,26 @@ name = "palrup-io"
 version = "0.1.0"
 dependencies = [
  "log",
+]
+
+[[package]]
+name = "palrup-io"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad19e516d3a6bbaa3f6701075b6935e8f0ca3696f7df7419b38aa846c51aec8e"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "palrup-proof-graph"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "palrup-io 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rayon",
+ "rustc-hash",
 ]
 
 [[package]]

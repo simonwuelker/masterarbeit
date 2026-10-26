@@ -1,0 +1,15 @@
+[package]
+name = "palrup-proof-graph"
+version = "0.1.0"
+edition = "2024"
+authors = ["Simon Wülker"]
+description = "Utilities for finding the minimal proof graph in a PalRUP proof"
+license = "MIT"
+repository = "https://github.com/simonwuelker/masterarbeit"
+
+[dependencies]
+log = { workspace = true }
+palrup-io = "0.1"
+anyhow = { workspace = true } # TODO: remove?
+rayon = { workspace = true }
+rustc-hash = { workspace = true }
