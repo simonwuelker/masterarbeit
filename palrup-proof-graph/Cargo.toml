@@ -9,7 +9,7 @@ repository = "https://github.com/simonwuelker/masterarbeit"
 
 [dependencies]
 log = { workspace = true }
-palrup-io = "0.1"
+palrup-io = { workspace = true }
 anyhow = { workspace = true } # TODO: remove?
 rayon = { workspace = true }
 rustc-hash = { workspace = true }

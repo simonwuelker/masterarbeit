@@ -594,7 +594,7 @@ dependencies = [
  "gethostname",
  "growable-bloom-filter",
  "log",
- "palrup-io 0.1.0",
+ "palrup-io 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "palrup-proof-graph",
  "process_control",
  "rayon",

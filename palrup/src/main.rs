@@ -560,19 +560,23 @@ struct PerFileInfo {
     smallest_id: Option<Id>,
     id_of_unsat_clause: Option<Id>,
     import_depths: [f32; TRACK_DERIVATIVES_UP_TO as usize],
-    unused_imports: Vec<Id>,
+    unused_imports: Vec<u8>,
 }
 
 fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
     let proof_file = proof_file.as_ref();
 
     let iterator = PalrupIterator::for_file(proof_file).unwrap();
-    let mut unused_imports = FxHashSet::default();
     let mut walker = Walker::default();
 
     let mut id_of_unsat_clause = None;
     let mut step_count = 0;
     let mut smallest_id = None;
+
+    // 0/1 instead of false/true because that serializes shorter in json and
+    // i cant be bothered to do it smarter.
+    let mut unused_imports: Vec<u8> = vec![];
+    let mut import_to_index: FxHashMap<isize, usize> = Default::default();
     for entry in iterator {
         match entry.unwrap() {
             Step::Add(add) => {
@@ -584,11 +588,14 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
                     id_of_unsat_clause = Some(add.id);
                 }
                 for derived_from in add.hints {
-                    unused_imports.remove(&derived_from);
+                    if let Some(index) = import_to_index.get(&derived_from) {
+                        unused_imports[*index] = 1;
+                    }
                 }
             }
             Step::Import(import) => {
-                unused_imports.insert(import.imported_clause);
+                import_to_index.insert(import.imported_clause, unused_imports.len());
+                unused_imports.push(0);
 
                 walker.import_clause(import);
             }
@@ -613,6 +620,6 @@ fn forward_parse_single_file(proof_file: impl AsRef<Path>) -> PerFileInfo {
         import_depths: usage_stats
             .import_depth
             .map(|depth| depth as f32 / usage_stats.num_imports as f32),
-        unused_imports: vec![], // unused_imports.into_iter().collect(),
+        unused_imports,
     }
 }
