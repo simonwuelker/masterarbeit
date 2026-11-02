@@ -363,26 +363,42 @@ def plot_contributions_over_time(data):
     plt.xticks(x)
     plt.tight_layout();
 
-def plot_contributions_over_time_single(data):
+def plot_contributions_over_time_single():
+    with open("jsons/contributions-per-configuration-up-to-25.json") as infile:
+        data1 = json.load(infile)
+    with open("jsons/contributions-per-configuration-after-25.json") as infile:
+        data2 = json.load(infile)
+
+    data = data1 + data2["single_results"]
     contributions_per_configuration = [0] * 10
-    print(data.keys())
     n_threads = 0
-    for data in data["single_results"]:
+    print(len(data))
+
+    for data in data:
+        if data["time"] < 20.0:
+            continue;
+
+        print(data["problem_name"])
         data = data["critical_clauses_per_thread_over_time"]["buckets"]
         n_threads = len(data)
-
+        sum_for_instance = 0
         for n in range((n_threads // 10) * 10):
-            contributions_per_configuration[n % 10] += sum(data[n])
+            sum_for_instance += sum(data[n])
+        if sum_for_instance == 0:
+            print("what")
+        for n in range((n_threads // 10) * 10):
+            contributions_per_configuration[n % 10] += sum(data[n]) / sum_for_instance
+
     colors = [plt.cm.tab10.colors[i] for i in range(10)]
     contributions = [x / sum(contributions_per_configuration) for x in contributions_per_configuration]
-    plt.title("Share of contributions by each configurations")
+    # plt.title("Share of contributions by each configuration")
     plt.bar([x for x in range(10)], contributions,color=colors)
     plt.xticks([x for x in range(10)])
     plt.hlines(y=[0.1], xmin = 0, xmax = 10, colors=['g'], linestyles=['--'])
-    plt.savefig("share_of_contributions_by_each_configuration.svg")
     plt.xlabel("Configuration ID")
-    plt.ylabel("Share of refutation DAG")
+    plt.ylabel("Avg. fraction of proof contributed")
     plt.tight_layout();
+    plt.savefig("share_of_contributions_by_each_configuration.svg")
 
 def rolling_window(a, window):
     shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
@@ -479,8 +495,8 @@ def violin_plot(data):
         print("skipped important", skipped, "left with", len(when_critical))
         # axs.set_yscale("log")
         print(when_critical.count(3) / len(when_critical), when_not_critical.count(3) / len(when_not_critical))
-        sns.histplot(discrete=True, data=when_critical, ax=ax, label="Important",stat="probability",)
-        sns.histplot(discrete=True, data=when_not_critical, ax=ax, label="Not important",stat="probability")
+        sns.histplot(discrete=True, data=when_critical, ax=ax, label=r"in $\Gamma_{min}$",stat="probability",)
+        sns.histplot(discrete=True, data=when_not_critical, ax=ax, label=r"not in $\Gamma_{min}$",stat="probability")
         # ax.violinplot([when_not_critical, when_critical, total], showmeans=True)
         # ax.set_xticks([1, 2, 3], labels=["Not Important","Important",  "Total"])
         ax.set_xlabel(ylabel)
@@ -499,65 +515,56 @@ def violin_plot(data):
     fig.delaxes(axs[1][1])
     # for_metric(axs[1][1], "average_lookbehind", "Min Lookbehind", skip_greater_than=50000)
     plt.tight_layout()
-    plt.savefig("violin_distribution.svg")
+    plt.savefig("metric_density_plot.svg")
 
 def plot_runtime_differences():
-    with open("jsons/timing-normal-run-cook.json", "r") as outfile:
+    with open("jsons/dvt-full-proper.json", "r") as outfile:
         data = json.load(outfile)
-        expected_order = [problem["problem_name"] for problem in data["single_results"]]
-        normal_timings = [problem["time"] for problem in data["single_results"]]
-    with open("jsons/timing-searchonly-run-cook.json", "r") as outfile:
+        normal_timings = { problem["problem"].split("/")[-1]: problem["analysis_or_error"]["Success"]["parallel"]["time"] for problem in data }
+
+    with open("jsons/manual.json", "r") as outfile:
+        searchonly_timings = json.load(outfile)
+        searchonly_timings = {key: searchonly_timings[key] for key in normal_timings.keys() }
+
+    with open("jsons/dvt-full4.json", "r") as outfile:
         data = json.load(outfile)
-        order = [problem["problem_name"] for problem in data["single_results"]]
-        assert expected_order == order
-        searchonly_timings = [problem["time"] for problem in data["single_results"]]
-    with open("jsons/timing-unsatonly-run-cook.json", "r") as outfile:
-        data = json.load(outfile)
-        order = [problem["problem_name"] for problem in data["single_results"]]
-        assert expected_order == order
-        unsat_timings = [problem["time"] for problem in data["single_results"]]
+        unsat_timings = {}
+        for problem_data in data:
+            name = problem_data["problem"].split("/")[-1]
+            if not name in normal_timings:
+                continue
+            if problem_data["analysis_or_error"] == "InternalError" or not "Success"in problem_data["analysis_or_error"].keys():
+                print("FAILED")
+                continue
+            unsat_timings[name] = problem_data["analysis_or_error"]["Success"]["parallel"]["time"]
 
-    fig = plt.figure(layout='constrained', figsize=(12, 5))
-    gs = fig.add_gridspec(1, 2, width_ratios=[3, 2])
-    ax = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
-    # ax.set_xticks([x for x in range(len(expected_order))], labels=expected_order, rotation=340)
-    ax[0].set_title("Solve time with different configurations")
-    ax[0].set_ylabel("Time (seconds)")
-    ax[0].set_xlabel("Problem ID")
-    ax[0].set_yscale("log")
-    ax[0].grid()
+    fig, axs = plt.subplots(nrows=1, ncols=3, figsize = (10, 5), constrained_layout=True)
+    def makeplot(ax, data1, data2, xlabel, ylabel):
+        ax.set_aspect('equal', adjustable='box')
+        ax.set_yscale("log")
+        ax.set_xscale("log")
+        ax.set_xlabel(f"Solve time with {xlabel} (seconds)")
+        ax.set_ylabel(f"Solve time with {ylabel} (seconds)")
+        ax.grid()
+        x = [data1[key] for key in data1.keys()]
+        y = [data2[key] for key in data1.keys()]
 
-    problems = [extract_problem_name(p) for p in expected_order]
-    ax[0].grouped_bar(
-        [normal_timings, searchonly_timings, unsat_timings],
-        tick_labels=[x for x in range(len(expected_order))],
-        labels=["Default Portfolio", "Searchonly", "Unsat Preset"]
-    )
-    ax[0].legend()
+        print("{} {} vs {} {}".format(xlabel, sum(x), ylabel, sum(y)))
+        axis_min = min(min(x), min(y))
+        axis_max = max(max(x), max(y))
+        ax.plot(
+            [axis_min, axis_max],
+            [axis_min, axis_max],
+            "--",
+            color="red"
+        )
+        ax.scatter(x, y, marker="x")
 
-    # === Table ===
-    ax[1].axis("off")
-    table_data = [
-        [index, extract_problem_name(label)]
-        for index, label in enumerate(expected_order)
-    ]
 
-    table = ax[1].table(
-        cellText=table_data,
-        colLabels=["#", "Category"],
-        loc="center",
-        cellLoc="left",
-        colWidths=[0.1, 0.9],
-    )
+    makeplot(axs[0], normal_timings, searchonly_timings, "default portfolio", "plain CaDiCal")
+    makeplot(axs[1], searchonly_timings, unsat_timings, "plain CaDiCal", "unsat preset")
+    makeplot(axs[2], unsat_timings, normal_timings, "unsat preset", "default portfolio")
 
-    table.auto_set_font_size(False)
-    table.set_fontsize(9)
-    table.scale(1, 1.8)
-    for cell in table.get_celld().values():
-        cell.PAD = 0.1
-        pass
-    # for container in res.bar_containers:
-    #     ax.bar_label(container, padding=3)
     plt.savefig("runtime-differences.svg")
 
 def plot_correlation_between_proof_dag_volume_and_time(data):
@@ -567,7 +574,7 @@ def plot_correlation_between_proof_dag_volume_and_time(data):
     for problem_data in data:
         problem_name = problem_data["problem"]
         print(problem_name)
-        if not "Success"in problem_data["analysis_or_error"].keys():
+        if problem_data["analysis_or_error"] == "InternalError" or not "Success"in problem_data["analysis_or_error"].keys():
             print("FAILED")
             continue
         problem_data = problem_data["analysis_or_error"]["Success"]
@@ -583,7 +590,7 @@ def plot_correlation_between_proof_dag_volume_and_time(data):
         observed_speedup = sequential_problem_data["time"] / parallel_problem_data["time"]
 
         if observed_speedup < 1.0:
-            print("WHAT?")
+            print("WHAT?", sequential_problem_data["time"] )
 
         predicted_speedups.append(predicted_speedup)
         observed_speedups.append(observed_speedup)
@@ -591,10 +598,11 @@ def plot_correlation_between_proof_dag_volume_and_time(data):
         print("Predicted speedup on", problem_name, ":", predicted_speedup)
         print("Actual Speedup:", sequential_problem_data["time"], " vs. ", parallel_problem_data["time"]," => ", observed_speedup)
 
-    plt.scatter(predicted_speedups, observed_speedups, label="Observed Predictions")
+    plt.scatter(predicted_speedups, observed_speedups, label="Observed predictions", marker="x")
     plt.xscale("log")
     plt.yscale("log")
 
+    print(len(predicted_speedups), "samples")
     axis_min = min(min(predicted_speedups), min(observed_speedups))
     axis_max = max(max(predicted_speedups), max(observed_speedups))
     plt.plot(
@@ -608,11 +616,13 @@ def plot_correlation_between_proof_dag_volume_and_time(data):
     plt.grid()
     plt.xlabel("Predicted Speedup")
     plt.ylabel("Observed Speedup")
-    plt.title("Accuracy of predicted speedups")
     plt.savefig("speedup_prediction.svg")
 
 import itertools
-def plot_bottleneck_clauses(data):
+def plot_bottleneck_clauses():
+    with open("jsons/dvt-full-proper.json") as infile:
+        data = json.load(infile)
+
     sequential_bottlenecks = []
     parallel_bottlenecks = []
 
@@ -656,19 +666,158 @@ def plot_bottleneck_clauses(data):
     print(max(parallel), max(sequential))
     show_up_to = 49
 
+    plt.rcParams.update({'font.size': 12})
     print(sequential.count(1), len(sequential), "sequential bottlenecks vs total")
     plt.hist([sequential, parallel], density=True, histtype="stepfilled", alpha=0.9, bins=show_up_to, range=(1,show_up_to + 1),
-                                   cumulative=-1, label=["Sequential", "Parallel (16 threads)"])
+                                   cumulative=-1, label=["Sequential", "Parallel"])
     plt.ylabel(r"$p(width \geq x)$")
     plt.xlabel("Proof Graph Width")
-    plt.title("Reversed cumulative distribution of proof graph width")
+    # plt.title("Reversed cumulative distribution of proof graph width")
     plt.legend()
     plt.yticks(np.arange(0, 1.1, 0.1))
     plt.xticks([1] + [x for x in range(0, show_up_to + 2, 5)][1:])
     plt.grid()
     plt.savefig("proof_width.svg")
 
+def compare_proof_depths():
+    with open("jsons/dvt-full-proper.json") as infile:
+        data = json.load(infile)
+
+    values = []
+    for problem_data in data:
+        if not "Success"in problem_data["analysis_or_error"].keys():
+            print("FAILED")
+            continue
+        parallel = problem_data["analysis_or_error"]["Success"]["parallel"]
+        sequential = problem_data["analysis_or_error"]["Success"]["sequential"]
+        if sequential["time"] < 1.0:
+            continue;
+        values.append(len(parallel["depth_values"]) / len(sequential["depth_values"]))
+    print(values)
+    values.sort()
+    plt.rcParams.update({'font.size': 12})
+    plt.bar([x for x in range(len(values))], values)
+    plt.yticks([0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6])
+    plt.ylabel("parallel depth / sequential depth")
+    plt.xlabel("Instances")
+    plt.grid(axis="y")
+    plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+    print(sum(values) / len(values))
+    plt.savefig("proof_depth.svg")
+
+def proof_depth_vs_runtime():
+    with open("jsons/dvt-full-proper.json") as infile:
+        data = json.load(infile)
+
+    parallel_depths = []
+    parallel_times = []
+    sequential_depths = []
+    sequential_times = []
+    for problem_data in data:
+        if not "Success"in problem_data["analysis_or_error"].keys():
+            print("FAILED")
+            continue
+        parallel = problem_data["analysis_or_error"]["Success"]["parallel"]
+        sequential = problem_data["analysis_or_error"]["Success"]["sequential"]
+        parallel_depths.append(len(parallel["depth_values"]))
+        parallel_times.append(parallel["time"])
+        sequential_depths.append(len(sequential["depth_values"]))
+        sequential_times.append(sequential["time"])
+
+
+    # plt.rcParams.update({'font.size': 12})
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.scatter(parallel_depths, parallel_times, label="Parallel samples", marker="x")
+    plt.scatter(sequential_depths, sequential_times, label="Sequential samples", marker="x")
+    plt.legend()
+    plt.ylabel("Proof depth")
+    plt.xlabel("Solve time")
+    plt.grid()
+
+    print("Parallel correlation:", np.corrcoef(parallel_depths, parallel_times)[0, 1])
+    print("Sequential correlation:", np.corrcoef(sequential_depths, sequential_times)[0, 1])
+
+
+
+    # plt.tick_params(
+    #     axis='x',          # changes apply to the x-axis
+    #     which='both',      # both major and minor ticks are affected
+    #     bottom=False,      # ticks along the bottom edge are off
+    #     top=False,         # ticks along the top edge are off
+    #     labelbottom=False) # labels along the bottom edge are off
+    # print(sum(values) / len(values))
+    plt.savefig("proof_depth_vs_runtime.svg")
+
+def unused_imports_plot():
+    def moving_average(a, n=3):
+        ret = np.cumsum(a, dtype=float)
+        ret[n:] = ret[n:] - ret[:-n]
+        return ret[n - 1:] / n
+
+    # with open("jsons/unused-imports-big-run.json") as infile:
+    #     data = json.load(infile)
+
+    WINDOW_SIZE=1000
+    size = None
+    lines = []
+    with open("jsons/unused_imports_cache.json", "r") as infile:
+        lines = json.load(infile)
+    # for problem_data in data["single_results"]:
+    #     if problem_data["time"] < 1.0:
+    #         continue
+    #     file_values = []
+    #     for filename in problem_data["per_file"]:
+    #         per_file_data = problem_data["per_file"][filename]
+    #         print(per_file_data.keys())
+    #         values = moving_average(per_file_data["unused_imports"], WINDOW_SIZE)
+    #         print(len(values))
+
+    #         if size is None:
+    #             size = len(values)
+    #         if len(values) == 0:
+    #             values = [0]
+
+    #         x_old = np.linspace(0, 1, len(values))   # original positions
+    #         x_new = np.linspace(0, 1, size)   # target positions
+    #         interpolated = np.interp(x_new, x_old, values)
+    #         file_values.append(interpolated)
+
+    #     average = list(np.average(file_values, axis=0))
+    #     lines.append(average)
+    # with open("jsons/unused_imports_cache.json", "w") as outfile:
+    #     json.dump(lines, outfile)
+    fig, ax0 = plt.subplots()
+    for line in lines:
+        ax0.plot(line, alpha=0.2, label="Single instance")
+    avg = np.average(lines, axis=0,)
+    print("Total average", np.average(lines))
+    ax0.plot(avg, color="black", linestyle="dashed", label="Average")
+    ax0.grid()
+    ax0.set_ylabel("Fraction of last 1000 imports used to derive clauses")
+    ax0.set_xlabel("Fraction of total time elapsed")
+
+    def x_axis_formatter(x, pos):
+        return "{:.2f}%".format(100 * x / len(avg))
+
+    # ax0.legend()
+    ax0.set_xticks([x * len(avg) for x in [0.0,  0.2,  0.4,  0.6,0.8,  1.0]])
+    ax0.xaxis.set_major_formatter(x_axis_formatter)
+    plt.savefig("unused_imports.svg")
+
+
+
+plot_correlation_between_proof_dag_volume_and_time(data)
+# unused_imports_plot()
+# compare_proof_depths()
+# plot_contributions_over_time_single()
 # plot_runtime_differences()
+# proof_depth_vs_runtime()
 # plot_import_generations(data)
 # plot_unused_imports_per_generation(data["single_results"])
 # print(data["hostname"])
@@ -676,19 +825,12 @@ def plot_bottleneck_clauses(data):
 #     print(problem["problem_name"], problem["time"])
 # print(data["hostname"])
 # plot_correlation_between_proof_dag_volume_and_time(data)
-plot_bottleneck_clauses(data)
+# plot_bottleneck_clauses()
 # violin_plot(data)
 # plot_histograms(data)
 # plot_2d_histograms(data)
 # plot_share_of_important_clauses_per_thread_over_time(data["single_results"][4])
 # plot_share_of_important_clauses_per_thread_over_time(data)
-
-
-# plot_share_of_important_clauses_per_thread_over_time(data["single_results"][3]) # good
-# plot_share_of_important_clauses_per_thread_over_time(data["single_results"][5]) # nice
-# plot_share_of_important_clauses_per_thread_over_time(data["single_results"][6]) # wtf
-# plot_share_of_important_clauses_per_thread_over_time(data["single_results"][8]) # long time no progress then everything at once
-
 # plot_share_of_important_clauses_per_thread_over_time(data)
 # plot_contributions_over_time(data)
 # plot_clause_depths(data)
